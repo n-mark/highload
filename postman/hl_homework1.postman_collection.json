@@ -269,6 +269,43 @@
         }
       },
       "response": []
+    },
+    {
+      "name": "http://localhost:8080/profile",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/profile?profile_id={{profile_id}}",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "profile"
+          ],
+          "query": [
+            {
+              "key": "profile_id",
+              "value": "{{profile_id}}"
+            }
+          ]
+        }
+      },
+      "response": []
     }
   ],
   "auth": {
