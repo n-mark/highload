@@ -1,16 +1,15 @@
 package services
 
 import (
+	"context"
 	"errors"
 
 	"example.com/highload/myproject/internal/auth"
 	"example.com/highload/myproject/internal/models"
 	"example.com/highload/myproject/internal/store"
-	"github.com/google/uuid"
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
-
 
 type UserService struct {
 	store  *store.UserStore
@@ -21,28 +20,28 @@ func NewUserService(store *store.UserStore, hasher auth.PasswordHasher) *UserSer
 	return &UserService{store: store, hasher: hasher}
 }
 
-func (s *UserService) CreateUser(dto models.CreateUserDTO) (models.GetUserDTO, error) {
+func (s *UserService) CreateUser(ctx context.Context, dto models.CreateUserDTO) (models.GetUserDTO, error) {
 	passwordHash, err := s.hasher.Hash(dto.Password)
 	if err != nil {
 		return models.GetUserDTO{}, err
 	}
 
 	user := models.User{
-		ID:           uuid.New(),
 		Username:     dto.Username,
 		Email:        dto.Email,
 		PasswordHash: passwordHash,
 	}
 
-	if err := s.store.Create(user); err != nil {
+	created, err := s.store.Create(ctx, user)
+	if err != nil {
 		return models.GetUserDTO{}, err
 	}
 
-	return models.GetUserDTO{UserID: user.ID, Username: user.Username, Email: user.Email}, nil
+	return models.GetUserDTO{UserID: created.ID, Username: created.Username, Email: created.Email}, nil
 }
 
-func (s *UserService) UpdateUser(dto models.UpdateUserDTO) (models.GetUserDTO, error) {
-	user, err := s.store.GetByID(dto.UserID)
+func (s *UserService) UpdateUser(ctx context.Context, dto models.UpdateUserDTO) (models.GetUserDTO, error) {
+	user, err := s.store.GetByID(ctx, dto.UserID)
 	if err != nil {
 		return models.GetUserDTO{}, err
 	}
@@ -50,15 +49,16 @@ func (s *UserService) UpdateUser(dto models.UpdateUserDTO) (models.GetUserDTO, e
 	user.Username = dto.Username
 	user.Email = dto.Email
 
-	if err := s.store.Update(user); err != nil {
+	updated, err := s.store.Update(ctx, user)
+	if err != nil {
 		return models.GetUserDTO{}, err
 	}
 
-	return models.GetUserDTO{UserID: user.ID, Username: user.Username, Email: user.Email}, nil
+	return models.GetUserDTO{UserID: updated.ID, Username: updated.Username, Email: updated.Email}, nil
 }
 
-func (s *UserService) ValidateCredentials(username, password string) (models.User, error) {
-	user, err := s.store.GetByUsername(username)
+func (s *UserService) ValidateCredentials(ctx context.Context, username, password string) (models.User, error) {
+	user, err := s.store.GetByUsername(ctx, username)
 	if err != nil {
 		return models.User{}, ErrInvalidCredentials
 	}

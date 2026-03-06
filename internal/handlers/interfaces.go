@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"example.com/highload/myproject/internal/models"
@@ -8,20 +9,20 @@ import (
 )
 
 type UserService interface {
-	CreateUser(dto models.CreateUserDTO) (models.GetUserDTO, error)
-	UpdateUser(dto models.UpdateUserDTO) (models.GetUserDTO, error)
+	CreateUser(ctx context.Context, dto models.CreateUserDTO) (models.GetUserDTO, error)
+	UpdateUser(ctx context.Context, dto models.UpdateUserDTO) (models.GetUserDTO, error)
 }
 
 type ProfileService interface {
-	GetOne(id uuid.UUID) (models.GetProfileDTO, error)
-	List(query models.QueryDTO) []models.GetProfileDTO
-	Create(ownerID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error)
-	Update(ownerID uuid.UUID, profileID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error)
+	GetOne(ctx context.Context, id uuid.UUID) (models.GetProfileDTO, error)
+	List(ctx context.Context, query models.QueryDTO) ([]models.GetProfileDTO, error)
+	Create(ctx context.Context, ownerID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error)
+	Update(ctx context.Context, ownerID uuid.UUID, profileID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error)
 }
 
 type AuthService interface {
-	Login(dto models.LoginDTO) (models.TokenDTO, error)
-	Register(dto models.CreateUserDTO) (models.GetUserDTO, error)
+	Login(ctx context.Context, dto models.LoginDTO) (models.TokenDTO, error)
+	Register(ctx context.Context, dto models.CreateUserDTO) (models.GetUserDTO, error)
 }
 
 type AuthMiddleware interface {

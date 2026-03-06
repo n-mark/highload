@@ -44,7 +44,7 @@ func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.service.GetOne(profileID)
+	profile, err := h.service.GetOne(r.Context(), profileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -65,7 +65,11 @@ func (h *ProfileHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profiles := h.service.List(query)
+	profiles, err := h.service.List(r.Context(), query)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, http.StatusOK, profiles)
 }
 
@@ -88,7 +92,7 @@ func (h *ProfileHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.service.Create(ownerID, dto)
+	profile, err := h.service.Create(r.Context(), ownerID, dto)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -128,7 +132,7 @@ func (h *ProfileHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.service.Update(ownerID, profileID, dto)
+	profile, err := h.service.Update(r.Context(), ownerID, profileID, dto)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

@@ -1,24 +1,29 @@
 package services
 
 import (
-	"strings"
-	"time"
+	"context"
 
 	"example.com/highload/myproject/internal/models"
-	"example.com/highload/myproject/internal/store"
 	"github.com/google/uuid"
 )
 
 type ProfileService struct {
-	store *store.ProfileStore
+	store ProfileStoreInterface
 }
 
-func NewProfileService(store *store.ProfileStore) *ProfileService {
+type ProfileStoreInterface interface {
+	Create(ctx context.Context, profile models.Profile) (models.Profile, error)
+	Update(ctx context.Context, profile models.Profile) (models.Profile, error)
+	GetByID(ctx context.Context, id uuid.UUID) (models.Profile, error)
+	List(ctx context.Context, query models.QueryDTO) ([]models.Profile, error)
+}
+
+func NewProfileService(store ProfileStoreInterface) *ProfileService {
 	return &ProfileService{store: store}
 }
 
-func (s *ProfileService) GetOne(id uuid.UUID) (models.GetProfileDTO, error) {
-	profile, err := s.store.GetByID(id)
+func (s *ProfileService) GetOne(ctx context.Context, id uuid.UUID) (models.GetProfileDTO, error) {
+	profile, err := s.store.GetByID(ctx, id)
 	if err != nil {
 		return models.GetProfileDTO{}, err
 	}
@@ -26,77 +31,58 @@ func (s *ProfileService) GetOne(id uuid.UUID) (models.GetProfileDTO, error) {
 	return mapProfile(profile), nil
 }
 
-func (s *ProfileService) List(query models.QueryDTO) []models.GetProfileDTO {
-	profiles := s.store.List(func(profile models.Profile) bool {
-		if query.Gender != "" && profile.Gender != query.Gender {
-			return false
-		}
-		if query.City != "" && profile.City != query.City {
-			return false
-		}
-		if query.Query != "" {
-			if !containsIgnoreCase(profile.Name, query.Query) && !containsIgnoreCase(profile.Surname, query.Query) {
-				return false
-			}
-		}
-		age := calcAge(profile.DateOfBirth)
-		if query.AgeFrom > 0 && age < query.AgeFrom {
-			return false
-		}
-		if query.AgeTo > 0 && age > query.AgeTo {
-			return false
-		}
-		return true
-	}, query.Count)
+func (s *ProfileService) List(ctx context.Context, query models.QueryDTO) ([]models.GetProfileDTO, error) {
+	profiles, err := s.store.List(ctx, query)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]models.GetProfileDTO, 0, len(profiles))
 	for _, profile := range profiles {
 		result = append(result, mapProfile(profile))
 	}
-	return result
+	return result, nil
 }
 
-func (s *ProfileService) Create(ownerID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error) {
+func (s *ProfileService) Create(ctx context.Context, ownerID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error) {
 	profile := models.Profile{
-		ID:          uuid.New(),
 		Name:        dto.Name,
 		Surname:     dto.Surname,
 		DateOfBirth: dto.DateOfBirth,
 		Gender:      dto.Gender,
 		Interests:   dto.Interests,
 		City:        dto.City,
+		Bio:         dto.Bio,
 		OwnerID:     ownerID,
 	}
 
-	if err := s.store.Create(profile); err != nil {
-		return models.GetProfileDTO{}, err
-	}
-
-	return mapProfile(profile), nil
-}
-
-func (s *ProfileService) Update(ownerID uuid.UUID, profileID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error) {
-	profile, err := s.store.GetByID(profileID)
+	created, err := s.store.Create(ctx, profile)
 	if err != nil {
 		return models.GetProfileDTO{}, err
 	}
 
-	if profile.OwnerID != ownerID {
-		return models.GetProfileDTO{}, store.ErrProfileNotFound
+	return mapProfile(created), nil
+}
+
+func (s *ProfileService) Update(ctx context.Context, ownerID uuid.UUID, profileID uuid.UUID, dto models.ProfileDTO) (models.GetProfileDTO, error) {
+	profile := models.Profile{
+		ID:          profileID,
+		OwnerID:     ownerID,
+		Name:        dto.Name,
+		Surname:     dto.Surname,
+		DateOfBirth: dto.DateOfBirth,
+		Gender:      dto.Gender,
+		Interests:   dto.Interests,
+		City:        dto.City,
+		Bio:         dto.Bio,
 	}
 
-	profile.Name = dto.Name
-	profile.Surname = dto.Surname
-	profile.DateOfBirth = dto.DateOfBirth
-	profile.Gender = dto.Gender
-	profile.Interests = dto.Interests
-	profile.City = dto.City
-
-	if err := s.store.Update(profile); err != nil {
+	updated, err := s.store.Update(ctx, profile)
+	if err != nil {
 		return models.GetProfileDTO{}, err
 	}
 
-	return mapProfile(profile), nil
+	return mapProfile(updated), nil
 }
 
 func mapProfile(profile models.Profile) models.GetProfileDTO {
@@ -109,22 +95,7 @@ func mapProfile(profile models.Profile) models.GetProfileDTO {
 			Gender:      profile.Gender,
 			Interests:   profile.Interests,
 			City:        profile.City,
+			Bio:         profile.Bio,
 		},
 	}
-}
-
-func calcAge(birthDate time.Time) int {
-	now := time.Now()
-	age := now.Year() - birthDate.Year()
-	if now.YearDay() < birthDate.YearDay() {
-		age--
-	}
-	return age
-}
-
-func containsIgnoreCase(haystack, needle string) bool {
-	if needle == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
 }

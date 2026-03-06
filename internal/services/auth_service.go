@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"time"
 
 	"example.com/highload/myproject/internal/auth"
@@ -20,9 +21,9 @@ func NewAuthService(users *store.UserStore, hasher auth.PasswordHasher, jwtManag
 	return &AuthService{users: users, hasher: hasher, jwtManager: jwtManager}
 }
 
-func (s *AuthService) Login(dto models.LoginDTO) (models.TokenDTO, error) {
+func (s *AuthService) Login(ctx context.Context, dto models.LoginDTO) (models.TokenDTO, error) {
 	userService := NewUserService(s.users, s.hasher)
-	user, err := userService.ValidateCredentials(dto.Username, dto.Password)
+	user, err := userService.ValidateCredentials(ctx, dto.Username, dto.Password)
 	if err != nil {
 		return models.TokenDTO{}, err
 	}
@@ -39,9 +40,9 @@ func (s *AuthService) Login(dto models.LoginDTO) (models.TokenDTO, error) {
 	}, nil
 }
 
-func (s *AuthService) Register(dto models.CreateUserDTO) (models.GetUserDTO, error) {
+func (s *AuthService) Register(ctx context.Context, dto models.CreateUserDTO) (models.GetUserDTO, error) {
 	userService := NewUserService(s.users, s.hasher)
-	user, err := userService.CreateUser(dto)
+	user, err := userService.CreateUser(ctx, dto)
 	if err != nil {
 		return models.GetUserDTO{}, err
 	}

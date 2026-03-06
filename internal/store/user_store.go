@@ -1,92 +1,83 @@
 package store
 
 import (
+	"context"
 	"errors"
-	"sync"
 
 	"example.com/highload/myproject/internal/models"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrUserNotFound = errors.New("user not found")
 var ErrUserExists = errors.New("user already exists")
 
 type UserStore struct {
-	mu       sync.RWMutex
-	users    map[uuid.UUID]models.User
-	byName   map[string]uuid.UUID
-	byEmail  map[string]uuid.UUID
+	db *pgxpool.Pool
 }
 
-func NewUserStore() *UserStore {
-	return &UserStore{
-		users:   make(map[uuid.UUID]models.User),
-		byName:  make(map[string]uuid.UUID),
-		byEmail: make(map[string]uuid.UUID),
-	}
+func NewUserStore(db *pgxpool.Pool) *UserStore {
+	return &UserStore{db: db}
 }
 
-func (s *UserStore) Create(user models.User) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *UserStore) Create(ctx context.Context, user models.User) (models.User, error) {
+	row := s.db.QueryRow(ctx,
+		`INSERT INTO users (username, email, password, phone)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id`,
+		user.Username, user.Email, user.PasswordHash, user.Phone,
+	)
 
-	if _, exists := s.byName[user.Username]; exists {
-		return ErrUserExists
-	}
-	if _, exists := s.byEmail[user.Email]; exists {
-		return ErrUserExists
-	}
-
-	s.users[user.ID] = user
-	s.byName[user.Username] = user.ID
-	s.byEmail[user.Email] = user.ID
-	return nil
-}
-
-func (s *UserStore) Update(user models.User) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.users[user.ID]; !exists {
-		return ErrUserNotFound
+	if err := row.Scan(&user.ID); err != nil {
+		return models.User{}, mapPgError(err, ErrUserExists)
 	}
 
-	if existingID, exists := s.byName[user.Username]; exists && existingID != user.ID {
-		return ErrUserExists
-	}
-	if existingID, exists := s.byEmail[user.Email]; exists && existingID != user.ID {
-		return ErrUserExists
-	}
-
-	s.users[user.ID] = user
-	s.byName[user.Username] = user.ID
-	s.byEmail[user.Email] = user.ID
-	return nil
-}
-
-func (s *UserStore) GetByID(id uuid.UUID) (models.User, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	user, ok := s.users[id]
-	if !ok {
-		return models.User{}, ErrUserNotFound
-	}
 	return user, nil
 }
 
-func (s *UserStore) GetByUsername(username string) (models.User, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	id, ok := s.byName[username]
-	if !ok {
+func (s *UserStore) Update(ctx context.Context, user models.User) (models.User, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE users SET username=$1, email=$2, phone=$3 WHERE id=$4`,
+		user.Username, user.Email, user.Phone, user.ID,
+	)
+	if err != nil {
+		return models.User{}, mapPgError(err, ErrUserExists)
+	}
+	if tag.RowsAffected() == 0 {
 		return models.User{}, ErrUserNotFound
 	}
 
-	user, ok := s.users[id]
-	if !ok {
-		return models.User{}, ErrUserNotFound
+	return user, nil
+}
+
+func (s *UserStore) GetByID(ctx context.Context, id uuid.UUID) (models.User, error) {
+	var user models.User
+	err := s.db.QueryRow(ctx,
+		`SELECT id, username, email, password, COALESCE(phone, '') FROM users WHERE id=$1`,
+		id,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Phone)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.User{}, ErrUserNotFound
+		}
+		return models.User{}, err
+	}
+
+	return user, nil
+}
+
+func (s *UserStore) GetByUsername(ctx context.Context, username string) (models.User, error) {
+	var user models.User
+	err := s.db.QueryRow(ctx,
+		`SELECT id, username, email, password, COALESCE(phone, '') FROM users WHERE username=$1`,
+		username,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Phone)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.User{}, ErrUserNotFound
+		}
+		return models.User{}, err
 	}
 
 	return user, nil

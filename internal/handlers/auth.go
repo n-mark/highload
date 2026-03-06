@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"example.com/highload/myproject/internal/models"
@@ -27,7 +28,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.service.Login(dto)
+	token, err := h.service.Login(r.Context(), dto)
 	if err != nil {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
@@ -48,11 +49,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.service.Register(dto)
+	user, err := h.service.Register(r.Context(), dto)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	log.Printf("user %s*** created", user.Username[:1])
 	writeJSON(w, http.StatusCreated, user)
 }

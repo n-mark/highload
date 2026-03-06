@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"example.com/highload/myproject/internal/models"
@@ -35,12 +36,13 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.service.CreateUser(dto)
+	user, err := h.service.CreateUser(r.Context(), dto)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	log.Printf("user %s*** created", user.Username[:3])
 	writeJSON(w, http.StatusCreated, user)
 }
 
@@ -56,7 +58,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.service.UpdateUser(dto)
+	user, err := h.service.UpdateUser(r.Context(), dto)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

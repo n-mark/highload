@@ -14,23 +14,25 @@ const (
 )
 
 type Profile struct {
-	ID         uuid.UUID
-	Name       string
-	Surname    string
+	ID          uuid.UUID
+	Name        string
+	Surname     string
 	DateOfBirth time.Time
-	Gender     Gender
-	Interests  string
-	City       string
-	OwnerID    uuid.UUID
+	Gender      Gender
+	Interests   string
+	City        string
+	Bio         string
+	OwnerID     uuid.UUID
 }
 
 type ProfileDTO struct {
-	Name       string    `json:"name"`
-	Surname    string    `json:"surname"`
+	Name        string    `json:"name"`
+	Surname     string    `json:"surname"`
 	DateOfBirth time.Time `json:"date_of_birth"`
-	Gender     Gender    `json:"gender"`
-	Interests  string    `json:"interests"`
-	City       string    `json:"city"`
+	Gender      Gender    `json:"gender"`
+	Interests   string    `json:"interests"`
+	City        string    `json:"city"`
+	Bio         string    `json:"bio"`
 }
 
 type GetProfileDTO struct {
