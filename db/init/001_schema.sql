@@ -1,4 +1,4 @@
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     username varchar(255) UNIQUE NOT NULL,
     email varchar(255) UNIQUE NOT NULL,
@@ -6,7 +6,7 @@ CREATE TABLE users (
     phone varchar(50)
 );
 
-CREATE TABLE profile (
+CREATE TABLE IF NOT EXISTS profile (
     profile_id uuid PRIMARY KEY DEFAULT uuidv7(),
     userid uuid NOT NULL,
     name varchar(255),

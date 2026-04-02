@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"example.com/highload/myproject/internal/models"
 	"github.com/google/uuid"
@@ -92,9 +94,22 @@ func (s *ProfileStore) List(ctx context.Context, query models.QueryDTO) ([]model
 		argIdx++
 	}
 	if query.Query != "" {
-		sql += fmt.Sprintf(" AND (name ILIKE $%d OR surname ILIKE $%d)", argIdx, argIdx)
-		args = append(args, "%"+query.Query+"%")
-		argIdx++
+		words := strings.Fields(query.Query)
+		lettersOnly := regexp.MustCompile(`[^a-zA-Zа-яА-ЯёЁ]`)
+
+		var tokens []string
+		for _, w := range words {
+			clean := lettersOnly.ReplaceAllString(w, "")
+			if clean != "" {
+				tokens = append(tokens, clean)
+			}
+		}
+
+		for _, token := range tokens {
+			sql += fmt.Sprintf(" AND (lower(name) LIKE $%d OR lower(surname) LIKE $%d)", argIdx, argIdx)
+			args = append(args, strings.ToLower(token)+"%")
+			argIdx++
+		}
 	}
 	if query.AgeFrom > 0 {
 		sql += fmt.Sprintf(" AND date_of_birth <= (now() - interval '%d years')", query.AgeFrom)

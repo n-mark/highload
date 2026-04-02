@@ -38,3 +38,5 @@ services:
 
 volumes:
   pgdata:
+    external: true
+    name: highload-homework1_pgdata  # указываем существующий том

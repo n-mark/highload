@@ -1,0 +1,462 @@
+{
+  "info": {
+    "_postman_id": "f911cafc-1bb2-48a3-973b-c83e5928cfdf",
+    "name": "hl_homework1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "24633807"
+  },
+  "item": [
+    {
+      "name": "http://localhost:8080/auth/register",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const username = pm.variables.replaceIn(\"{{$randomUserName}}\");",
+              "const email = pm.variables.replaceIn(\"{{$randomEmail}}\");",
+              "",
+              "pm.collectionVariables.set(\"username\", username);",
+              "pm.collectionVariables.set(\"email\", email);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              ""
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{username}}\",\"email\":\"{{email}}\",\"password\":\"Qwerty123!\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8080/auth/register",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "auth",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "http://localhost:8080/auth/login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let response = pm.response.json();",
+              "pm.collectionVariables.set(\"access_token\", response.access_token);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"Qwerty123!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8080/auth/login",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "http://localhost:8080/profile",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "/******************************************************************",
+              " * CONFIG",
+              " ******************************************************************/",
+              "",
+              "const URLS = {",
+              "  maleNames:",
+              "    \"https://raw.githubusercontent.com/Raven-SL/ru-pnames-list/refs/heads/master/lists/male_names_rus.txt\",",
+              "",
+              "  femaleNames:",
+              "    \"https://raw.githubusercontent.com/Raven-SL/ru-pnames-list/refs/heads/master/lists/female_names_rus.txt\",",
+              "",
+              "  maleLastNames:",
+              "    \"https://raw.githubusercontent.com/Raven-SL/ru-pnames-list/refs/heads/master/lists/male_surnames_rus.txt\"",
+              "};",
+              "",
+              "",
+              "/******************************************************************",
+              " * HELPERS",
+              " ******************************************************************/",
+              "",
+              "function random(arr) {",
+              "  return arr[Math.floor(Math.random() * arr.length)];",
+              "}",
+              "",
+              "// ---- HTTP loader → Promise ----",
+              "function fetchTxt(url) {",
+              "  return new Promise((resolve, reject) => {",
+              "",
+              "    pm.sendRequest(url, (err, res) => {",
+              "      if (err) return reject(err);",
+              "",
+              "      const arr = res.text()",
+              "        .split(\"\\n\")",
+              "        .map(v => v.trim())",
+              "        .filter(Boolean);",
+              "",
+              "      resolve(arr);",
+              "    });",
+              "",
+              "  });",
+              "}",
+              "",
+              "",
+              "// ---- cache loader ----",
+              "async function loadList(cacheKey, url) {",
+              "",
+              "  const cached = pm.collectionVariables.get(cacheKey);",
+              "",
+              "  if (cached) {",
+              "    return JSON.parse(cached);",
+              "  }",
+              "",
+              "  console.log(\"Loading:\", cacheKey);",
+              "",
+              "  const data = await fetchTxt(url);",
+              "",
+              "  pm.collectionVariables.set(",
+              "    cacheKey,",
+              "    JSON.stringify(data)",
+              "  );",
+              "",
+              "  return data;",
+              "}",
+              "",
+              "",
+              "/******************************************************************",
+              " * RUSSIAN SURNAME FEMINIZATION",
+              " ******************************************************************/",
+              "",
+              "/*",
+              "  Простая но практичная морфология:",
+              "",
+              "  ✔ Иванов → Иванова",
+              "  ✔ Петров → Петрова",
+              "  ✔ Сидорин → Сидорина",
+              "  ✔ Кузнецов → Кузнецова",
+              "",
+              "  НЕ меняются:",
+              "  ✔ Черных",
+              "  ✔ Долгих",
+              "  ✔ Живаго",
+              "  ✔ Шевченко",
+              "  ✔ Саакян",
+              "  ✔ Ким",
+              "*/",
+              "",
+              "function feminizeSurname(surname) {",
+              "",
+              "  const lower = surname.toLowerCase();",
+              "",
+              "  // неизменяемые окончания",
+              "  const immutableEndings = [",
+              "    \"ко\", \"енко\", \"ян\", \"янц\", \"дзе\",",
+              "    \"швили\", \"оглы\", \"кызы\",",
+              "    \"их\", \"ых\",",
+              "    \"о\", \"е\", \"у\", \"ю\",",
+              "    \"иа\"",
+              "  ];",
+              "",
+              "  if (immutableEndings.some(e => lower.endsWith(e))) {",
+              "    return surname;",
+              "  }",
+              "",
+              "  // уже женская",
+              "  if (lower.endsWith(\"а\")) {",
+              "    return surname;",
+              "  }",
+              "",
+              "  // классические русские фамилии",
+              "  if (",
+              "    lower.endsWith(\"ов\") ||",
+              "    lower.endsWith(\"ев\") ||",
+              "    lower.endsWith(\"ин\") ||",
+              "    lower.endsWith(\"ын\")",
+              "  ) {",
+              "    return surname + \"а\";",
+              "  }",
+              "",
+              "  // fallback (редкие случаи — не меняем)",
+              "  return surname;",
+              "}",
+              "",
+              "",
+              "/******************************************************************",
+              " * RANDOM DATA GENERATION",
+              " ******************************************************************/",
+              "",
+              "function randomDate(startYear, endYear) {",
+              "  const start = new Date(startYear, 0, 1).getTime();",
+              "  const end = new Date(endYear, 0, 1).getTime();",
+              "  const t = start + Math.random() * (end - start);",
+              "  return new Date(t).toISOString();",
+              "}",
+              "",
+              "const interestsList = [",
+              "  \"книги\",\"футбол\",\"музыка\",\"кино\",\"путешествия\",",
+              "  \"технологии\",\"спорт\",\"шахматы\",\"рисование\",\"игры\"",
+              "];",
+              "",
+              "const cities = [",
+              "  \"Москва\",\"Санкт-Петербург\",\"Новосибирск\",\"Екатеринбург\",",
+              "  \"Казань\",\"Нижний Новгород\",\"Челябинск\",\"Самара\",",
+              "  \"Омск\",\"Ростов-на-Дону\",\"Уфа\",\"Красноярск\",",
+              "  \"Воронеж\",\"Пермь\",\"Волгоград\"",
+              "];",
+              "",
+              "",
+              "/******************************************************************",
+              " * MAIN (ASYNC — CLEAN VERSION)",
+              " ******************************************************************/",
+              "",
+              "(async () => {",
+              "",
+              "  try {",
+              "",
+              "    const [",
+              "      maleNames,",
+              "      femaleNames,",
+              "      maleLastNames",
+              "    ] = await Promise.all([",
+              "      loadList(\"maleNamesArr\", URLS.maleNames),",
+              "      loadList(\"femaleNamesArr\", URLS.femaleNames),",
+              "      loadList(\"maleLastNamesArr\", URLS.maleLastNames)",
+              "    ]);",
+              "",
+              "    const gender = Math.random() < 0.5 ? \"MALE\" : \"FEMALE\";",
+              "",
+              "    const name =",
+              "      gender === \"MALE\"",
+              "        ? random(maleNames)",
+              "        : random(femaleNames);",
+              "",
+              "    let surname = random(maleLastNames);",
+              "",
+              "    if (gender === \"FEMALE\") {",
+              "      surname = feminizeSurname(surname);",
+              "    }",
+              "",
+              "    const shuffled = [...interestsList]",
+              "      .sort(() => 0.5 - Math.random());",
+              "",
+              "    const interests = shuffled",
+              "      .slice(0, Math.floor(Math.random()*3) + 2)",
+              "      .join(\", \");",
+              "",
+              "    const dateOfBirth = randomDate(1970, 2005);",
+              "    const city = random(cities);",
+              "",
+              "    /******** SAVE ********/",
+              "",
+              "    pm.collectionVariables.set(\"name\", name);",
+              "    pm.collectionVariables.set(\"surname\", surname);",
+              "    pm.collectionVariables.set(\"gender\", gender);",
+              "    pm.collectionVariables.set(\"interests\", interests);",
+              "    pm.collectionVariables.set(\"date_of_birth\", dateOfBirth);",
+              "    pm.collectionVariables.set(\"city\", city);",
+              "",
+              "    console.log(\"Generated:\", name, surname, gender);",
+              "",
+              "  } catch (e) {",
+              "    console.error(\"Generator error:\", e);",
+              "  }",
+              "",
+              "})();"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let response = pm.response.json();",
+              "pm.collectionVariables.set(\"profile_id\", response.profile_id);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"{{name}}\",\n    \"surname\": \"{{surname}}\",\n    \"date_of_birth\": \"{{date_of_birth}}\",\n    \"gender\": \"{{gender}}\",\n    \"interests\": \"{{interests}}\",\n    \"city\": \"{{city}}\"\n  }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8080/profile",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "profile"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          "let response = pm.response.json();",
+          "pm.environment.set(\"access_token\", response.access_token);"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "profile_id",
+      "value": ""
+    },
+    {
+      "key": "username",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": ""
+    },
+    {
+      "key": "surname",
+      "value": ""
+    },
+    {
+      "key": "name",
+      "value": ""
+    },
+    {
+      "key": "gender",
+      "value": ""
+    },
+    {
+      "key": "interests",
+      "value": ""
+    },
+    {
+      "key": "date_of_birth",
+      "value": ""
+    },
+    {
+      "key": "city",
+      "value": ""
+    },
+    {
+      "key": "maleNamesArr",
+      "value": ""
+    },
+    {
+      "key": "femaleNamesArr",
+      "value": ""
+    },
+    {
+      "key": "maleLastNamesArr",
+      "value": ""
+    }
+  ]
+}
