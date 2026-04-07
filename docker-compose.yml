@@ -17,13 +17,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1g
 
   app:
     build: .
     container_name: hl_app
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8181:8080"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
