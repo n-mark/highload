@@ -10,21 +10,21 @@ import (
 	"example.com/highload/myproject/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrProfileNotFound = errors.New("profile not found")
 
 type ProfileStore struct {
-	db *pgxpool.Pool
+	master  DB
+	replica DB
 }
 
-func NewProfileStore(db *pgxpool.Pool) *ProfileStore {
-	return &ProfileStore{db: db}
+func NewProfileStore(master DB, replica DB) *ProfileStore {
+	return &ProfileStore{master: master, replica: replica}
 }
 
 func (s *ProfileStore) Create(ctx context.Context, profile models.Profile) (models.Profile, error) {
-	row := s.db.QueryRow(ctx,
+	row := s.master.QueryRow(ctx,
 		`INSERT INTO profile (userid, name, surname, date_of_birth, gender, city, bio, interests)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING profile_id`,
@@ -40,7 +40,7 @@ func (s *ProfileStore) Create(ctx context.Context, profile models.Profile) (mode
 }
 
 func (s *ProfileStore) Update(ctx context.Context, profile models.Profile) (models.Profile, error) {
-	tag, err := s.db.Exec(ctx,
+	tag, err := s.master.Exec(ctx,
 		`UPDATE profile
 		 SET name=$1, surname=$2, date_of_birth=$3, gender=$4, city=$5, bio=$6, interests=$7
 		 WHERE profile_id=$8 AND userid=$9`,
@@ -61,7 +61,7 @@ func (s *ProfileStore) Update(ctx context.Context, profile models.Profile) (mode
 func (s *ProfileStore) GetByID(ctx context.Context, id uuid.UUID) (models.Profile, error) {
 	var p models.Profile
 	var gender string
-	err := s.db.QueryRow(ctx,
+	err := s.replica.QueryRow(ctx,
 		`SELECT profile_id, userid, name, surname, date_of_birth, gender, city, bio, interests
 		 FROM profile WHERE profile_id=$1`,
 		id,
@@ -122,7 +122,7 @@ func (s *ProfileStore) List(ctx context.Context, query models.QueryDTO) ([]model
 		args = append(args, query.Count)
 	}
 
-	rows, err := s.db.Query(ctx, sql, args...)
+	rows, err := s.replica.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}

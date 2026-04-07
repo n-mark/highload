@@ -27,8 +27,23 @@ func main() {
 	}
 	log.Println("connected to database")
 
-	userStore := store.NewUserStore(db)
-	profileStore := store.NewProfileStore(db)
+	replicaPools := make([]*pgxpool.Pool, 0, len(cfg.ReplicaDSNs()))
+	for _, dsn := range cfg.ReplicaDSNs() {
+		pool, err := pgxpool.New(context.Background(), dsn)
+		if err != nil {
+			log.Fatalf("failed to connect to replica %s: %v", dsn, err)
+		}
+		if err := pool.Ping(context.Background()); err != nil {
+			log.Fatalf("replica %s is not reachable: %v", dsn, err)
+		}
+		replicaPools = append(replicaPools, pool)
+		log.Printf("connected to replica %s", dsn)
+	}
+	replicaDB := store.NewReplicaPool(replicaPools)
+	defer replicaDB.Close()
+
+	userStore := store.NewUserStore(db, replicaDB)
+	profileStore := store.NewProfileStore(db, replicaDB)
 
 	passwordHasher := auth.NewBcryptHasher()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret, "myproject", "myproject-api")

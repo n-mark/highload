@@ -99,14 +99,13 @@ services:
     container_name: hl_app
     restart: unless-stopped
     ports:
-      - "8181:8080"
+      - "8080:8080"
     environment:
       DB_HOST: postgres-master
       DB_PORT: 5432
       DB_NAME: social
       DB_USER: social_user
       DB_PASSWORD: social_pass
-      DB_REPLICA_HOSTS: "postgres-slave1:5432,postgres-slave2:5432"
       JWT_SECRET: change-me-secret
       SERVER_ADDR: :8080
     depends_on:

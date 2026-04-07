@@ -7,22 +7,22 @@ import (
 	"example.com/highload/myproject/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrUserNotFound = errors.New("user not found")
 var ErrUserExists = errors.New("user already exists")
 
 type UserStore struct {
-	db *pgxpool.Pool
+	master  DB
+	replica DB
 }
 
-func NewUserStore(db *pgxpool.Pool) *UserStore {
-	return &UserStore{db: db}
+func NewUserStore(master, replica DB) *UserStore {
+	return &UserStore{master: master, replica: replica}
 }
 
 func (s *UserStore) Create(ctx context.Context, user models.User) (models.User, error) {
-	row := s.db.QueryRow(ctx,
+	row := s.master.QueryRow(ctx,
 		`INSERT INTO users (username, email, password, phone)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING id`,
@@ -37,7 +37,7 @@ func (s *UserStore) Create(ctx context.Context, user models.User) (models.User, 
 }
 
 func (s *UserStore) Update(ctx context.Context, user models.User) (models.User, error) {
-	tag, err := s.db.Exec(ctx,
+	tag, err := s.master.Exec(ctx,
 		`UPDATE users SET username=$1, email=$2, phone=$3 WHERE id=$4`,
 		user.Username, user.Email, user.Phone, user.ID,
 	)
@@ -53,7 +53,7 @@ func (s *UserStore) Update(ctx context.Context, user models.User) (models.User, 
 
 func (s *UserStore) GetByID(ctx context.Context, id uuid.UUID) (models.User, error) {
 	var user models.User
-	err := s.db.QueryRow(ctx,
+	err := s.replica.QueryRow(ctx,
 		`SELECT id, username, email, password, COALESCE(phone, '') FROM users WHERE id=$1`,
 		id,
 	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Phone)
@@ -69,7 +69,7 @@ func (s *UserStore) GetByID(ctx context.Context, id uuid.UUID) (models.User, err
 
 func (s *UserStore) GetByUsername(ctx context.Context, username string) (models.User, error) {
 	var user models.User
-	err := s.db.QueryRow(ctx,
+	err := s.replica.QueryRow(ctx,
 		`SELECT id, username, email, password, COALESCE(phone, '') FROM users WHERE username=$1`,
 		username,
 	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Phone)
