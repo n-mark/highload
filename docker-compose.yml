@@ -23,6 +23,11 @@ services:
       postgres
       -c config_file=/etc/postgresql/postgresql.conf
       -c hba_file=/etc/postgresql/pg_hba.conf
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1g
     networks:
       - pgcluster
 
@@ -52,11 +57,16 @@ services:
           sleep 3
           echo 'Creating base backup from master...'
           chown -R postgres:postgres /var/lib/postgresql/data
-          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R -S slave1_slot
+          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R           -S slave1_slot
           chmod 700 /var/lib/postgresql/data
         fi
         exec gosu postgres postgres -D /var/lib/postgresql/data -c config_file=/etc/postgresql/postgresql.conf
       "
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1g
     networks:
       - pgcluster
 
@@ -86,11 +96,16 @@ services:
           sleep 3
           echo 'Creating base backup from master...'
           chown -R postgres:postgres /var/lib/postgresql/data
-          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R -S slave2_slot
+          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R           -S slave2_slot
           chmod 700 /var/lib/postgresql/data
         fi
         exec gosu postgres postgres -D /var/lib/postgresql/data -c config_file=/etc/postgresql/postgresql.conf
       "
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1g
     networks:
       - pgcluster
 
