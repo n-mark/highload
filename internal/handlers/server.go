@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+
+	"example.com/highload/myproject/internal/metrics"
 )
 
 type Server struct {
@@ -28,5 +30,5 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("/profile", s.profileHandler.HandleProfile)
 	mux.HandleFunc("/profile/list", s.profileHandler.List)
 
-	return mux
+	return metrics.Middleware(mux)
 }
