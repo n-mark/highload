@@ -54,7 +54,7 @@ func main() {
 
 	middleware := auth.NewMiddleware(jwtManager)
 
-	server := handlers.NewServer(userService, profileService, authService, middleware)
+	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB)
 
 	log.Printf("listening on %s", cfg.ServerAddr)
 	if err := http.ListenAndServe(cfg.ServerAddr, server.Router()); err != nil {

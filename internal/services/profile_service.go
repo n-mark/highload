@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 
+	"example.com/highload/myproject/internal/metrics"
 	"example.com/highload/myproject/internal/models"
 	"github.com/google/uuid"
 )
@@ -61,6 +62,7 @@ func (s *ProfileService) Create(ctx context.Context, ownerID uuid.UUID, dto mode
 		return models.GetProfileDTO{}, err
 	}
 
+	metrics.ProfilesCreatedTotal.Inc()
 	return mapProfile(created), nil
 }
 

@@ -34,12 +34,30 @@ var (
 			Help: "Number of HTTP requests currently being processed",
 		},
 	)
+
+	// UsersCreatedTotal - счетчик созданных пользователей
+	UsersCreatedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "users_created_total",
+			Help: "Total number of users created",
+		},
+	)
+
+	// ProfilesCreatedTotal - счетчик созданных профилей
+	ProfilesCreatedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "profiles_created_total",
+			Help: "Total number of profiles created",
+		},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(HttpRequestsTotal)
 	prometheus.MustRegister(HttpRequestDuration)
 	prometheus.MustRegister(HttpRequestsInFlight)
+	prometheus.MustRegister(UsersCreatedTotal)
+	prometheus.MustRegister(ProfilesCreatedTotal)
 }
 
 // Handler возвращает http.Handler для /metrics ( promhttp ).

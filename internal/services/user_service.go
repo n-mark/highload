@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"example.com/highload/myproject/internal/auth"
+	"example.com/highload/myproject/internal/metrics"
 	"example.com/highload/myproject/internal/models"
 	"example.com/highload/myproject/internal/store"
 )
@@ -37,6 +38,7 @@ func (s *UserService) CreateUser(ctx context.Context, dto models.CreateUserDTO) 
 		return models.GetUserDTO{}, err
 	}
 
+	metrics.UsersCreatedTotal.Inc()
 	return models.GetUserDTO{UserID: created.ID, Username: created.Username, Email: created.Email}, nil
 }
 

@@ -1,12 +1,5 @@
 -- Create replication user for streaming replication
-DO
-$$
-BEGIN
-   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'replicator') THEN
-      CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'replicator_pass';
-   END IF;
-END
-$$;
+CREATE ROLE IF NOT EXISTS replicator WITH REPLICATION LOGIN PASSWORD 'replicator_pass';
 
 -- Create replication slot for slave1
 SELECT pg_create_physical_replication_slot('slave1_slot');
