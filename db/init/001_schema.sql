@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
     username varchar(255) UNIQUE NOT NULL,
     email varchar(255) UNIQUE NOT NULL,
     password text NOT NULL,
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS profile (
-    profile_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id uuid PRIMARY KEY DEFAULT uuidv7(),
     userid uuid NOT NULL,
     name varchar(255),
     surname varchar(255),
