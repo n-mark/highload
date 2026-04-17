@@ -44,6 +44,8 @@ func main() {
 
 	userStore := store.NewUserStore(db, replicaDB)
 	profileStore := store.NewProfileStore(db, replicaDB)
+	friendStore := store.NewFriendStore(db, replicaDB)
+	postStore := store.NewPostStore(db, replicaDB)
 
 	passwordHasher := auth.NewBcryptHasher()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret, "myproject", "myproject-api")
@@ -51,10 +53,12 @@ func main() {
 	userService := services.NewUserService(userStore, passwordHasher)
 	profileService := services.NewProfileService(profileStore)
 	authService := services.NewAuthService(userStore, passwordHasher, jwtManager)
+	friendService := services.NewFriendService(friendStore)
+	postService := services.NewPostService(postStore)
 
 	middleware := auth.NewMiddleware(jwtManager)
 
-	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB)
+	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB, friendService, postService)
 
 	log.Printf("listening on %s", cfg.ServerAddr)
 	if err := http.ListenAndServe(cfg.ServerAddr, server.Router()); err != nil {

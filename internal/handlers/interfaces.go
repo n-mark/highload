@@ -25,6 +25,19 @@ type AuthService interface {
 	Register(ctx context.Context, dto models.CreateUserDTO) (models.GetUserDTO, error)
 }
 
+type FriendService interface {
+	AddFriend(ctx context.Context, userID uuid.UUID, dto models.FriendActionDTO) error
+	DeleteFriend(ctx context.Context, userID uuid.UUID, dto models.FriendActionDTO) error
+}
+
+type PostService interface {
+	CreatePost(ctx context.Context, authorID uuid.UUID, dto models.CreatePostDTO) (models.GetPostDTO, error)
+	GetPost(ctx context.Context, postID string) (models.GetPostDTO, error)
+	UpdatePost(ctx context.Context, authorID uuid.UUID, dto models.UpdatePostDTO) (models.GetPostDTO, error)
+	DeletePost(ctx context.Context, authorID uuid.UUID, postID string) error
+	Feed(ctx context.Context, userID uuid.UUID, query models.FeedQueryDTO) ([]models.GetPostDTO, error)
+}
+
 type AuthMiddleware interface {
 	RequireAuth(next http.Handler) http.Handler
 }
