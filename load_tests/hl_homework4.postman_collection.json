@@ -1,0 +1,644 @@
+{
+  "info": {
+    "_postman_id": "dfde121b-b136-4285-9dab-91630c959162",
+    "name": "hl_homework1_modified",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "24633807"
+  },
+  "item": [
+    {
+      "name": "1. Register N Users",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Set number of users to register",
+              "const N = 5; // Change this value as needed",
+              "pm.collectionVariables.set(\"N_users\", N);",
+              "",
+              "// Initialize arrays to store user data",
+              "const users = [];",
+              "",
+              "console.log(`Starting registration of ${N} users...`);",
+              "",
+              "const timestamp = Date.now();",
+              "",
+              "// Function to generate profile data",
+              "function generateProfileData() {",
+              "    const maleNames = [\"Иван\",\"Алексей\",\"Дмитрий\",\"Сергей\",\"Андрей\",\"Михаил\",\"Никита\",\"Артем\"];",
+              "    const femaleNames = [\"Анна\",\"Мария\",\"Екатерина\",\"Ольга\",\"Наталья\",\"Ирина\",\"Дарья\",\"Алина\"];",
+              "    const lastNames = [\"Иванов\",\"Петров\",\"Сидоров\",\"Смирнов\",\"Кузнецов\",\"Попов\"];",
+              "    const lastNamesFemale = [\"Иванова\",\"Петрова\",\"Сидорова\",\"Смирнова\",\"Кузнецова\",\"Попова\"];",
+              "    const interestsList = [\"книги\",\"футбол\",\"музыка\",\"кино\",\"путешествия\",\"технологии\",\"спорт\",\"шахматы\",\"рисование\",\"игры\"];",
+              "    const cities = [\"Москва\",\"Санкт-Петербург\",\"Новосибирск\",\"Екатеринбург\",\"Казань\",\"Нижний Новгород\",\"Челябинск\",\"Самара\",\"Омск\",\"Ростов-на-Дону\",\"Уфа\",\"Красноярск\",\"Воронеж\",\"Пермь\",\"Волгоград\"];",
+              "    ",
+              "    function random(arr) {",
+              "        return arr[Math.floor(Math.random() * arr.length)];",
+              "    }",
+              "    ",
+              "    const gender = Math.random() < 0.5 ? \"MALE\" : \"FEMALE\";",
+              "    const name = gender === \"MALE\" ? random(maleNames) : random(femaleNames);",
+              "    const surname = gender === \"MALE\" ? random(lastNames) : random(lastNamesFemale);",
+              "    const shuffled = interestsList.sort(() => 0.5 - Math.random());",
+              "    const interests = shuffled.slice(0, Math.floor(Math.random()*3) + 2).join(\", \");",
+              "    ",
+              "    function randomDate(startYear, endYear) {",
+              "        const start = new Date(startYear, 0, 1).getTime();",
+              "        const end = new Date(endYear, 0, 1).getTime();",
+              "        const randomTime = start + Math.random() * (end - start);",
+              "        return new Date(randomTime).toISOString();",
+              "    }",
+              "    ",
+              "    const dateOfBirth = randomDate(1970, 2005);",
+              "    const city = random(cities);",
+              "    ",
+              "    return {",
+              "        name: name,",
+              "        surname: surname,",
+              "        date_of_birth: dateOfBirth,",
+              "        gender: gender,",
+              "        interests: interests,",
+              "        city: city",
+              "    };",
+              "}",
+              "",
+              "// Counter for completed registrations",
+              "let completedCount = 0;",
+              "",
+              "// Register N users",
+              "for (let i = 0; i < N; i++) {",
+              "    console.log(\"enter \" + i + \" user registration\");",
+              "    const username = pm.variables.replaceIn(\"{{$randomUserName}}\") + timestamp;",
+              "    const email = pm.variables.replaceIn(\"{{$randomEmail}}\") + timestamp;",
+              "    ",
+              "    const requestBody = {",
+              "        username: username,",
+              "        email: email,",
+              "        password: \"Qwerty123!\"",
+              "    };",
+              "",
+              "    pm.sendRequest({",
+              "        url: \"http://localhost:8080/auth/register\",",
+              "        method: \"POST\",",
+              "        header: {",
+              "            \"Content-Type\": \"application/json\"",
+              "        },",
+              "        body: {",
+              "            mode: \"raw\",",
+              "            raw: JSON.stringify(requestBody)",
+              "        }",
+              "    }, function (err, res) {",
+              "        // Check HTTP status code (200-299)",
+              "        if (!err && res.code >= 200 && res.code < 300) {",
+              "            const response = res.json();",
+              "            console.log(`User ${i+1} registered: ${username}`);",
+              "            ",
+              "            // Login to get token and user ID",
+              "            const loginBody = {",
+              "                username: username,",
+              "                password: \"Qwerty123!\"",
+              "            };",
+              "            ",
+              "            pm.sendRequest({",
+              "                url: \"http://localhost:8080/auth/login\",",
+              "                method: \"POST\",",
+              "                header: {",
+              "                    \"Content-Type\": \"application/json\"",
+              "                },",
+              "                body: {",
+              "                    mode: \"raw\",",
+              "                    raw: JSON.stringify(loginBody)",
+              "                }",
+              "            }, function (err2, res2) {",
+              "                if (!err2 && res2.code >= 200 && res2.code < 300) {",
+              "                    const loginResponse = res2.json();",
+              "                    const token = loginResponse.access_token;",
+              "                    const profileId = loginResponse.profile_id || response.id;",
+              "                    ",
+              "                    // Create profile",
+              "                    const profileData = generateProfileData();",
+              "                    ",
+              "                    pm.sendRequest({",
+              "                        url: \"http://localhost:8080/profile\",",
+              "                        method: \"POST\",",
+              "                        header: {",
+              "                            \"Content-Type\": \"application/json\",",
+              "                            \"Authorization\": \"Bearer \" + token",
+              "                        },",
+              "                        body: {",
+              "                            mode: \"raw\",",
+              "                            raw: JSON.stringify(profileData)",
+              "                        }",
+              "                    }, function (err3, res3) {",
+              "                        completedCount++;",
+              "                        ",
+              "                        if (!err3 && res3.code >= 200 && res3.code < 300) {",
+              "                            const profileResponse = res3.json();",
+              "                            const finalProfileId = profileResponse.user_id;",
+              "                            ",
+              "                            users.push({",
+              "                                username: username,",
+              "                                email: email,",
+              "                                password: \"Qwerty123!\",",
+              "                                token: token,",
+              "                                profile_id: finalProfileId",
+              "                            });",
+              "                            ",
+              "                            console.log(`✅ Profile created for ${username}, ID: ${finalProfileId}`);",
+              "                        } else {",
+              "                            // If profile creation fails, still save user with login data",
+              "                            users.push({",
+              "                                username: username,",
+              "                                email: email,",
+              "                                password: \"Qwerty123!\",",
+              "                                token: token,",
+              "                                profile_id: profileId",
+              "                            });",
+              "                            ",
+              "                            console.log(`⚠️ Profile creation failed for ${username}, using login ID: ${profileId}`);",
+              "                        }",
+              "                        ",
+              "                        // Check if all users are processed",
+              "                        if (completedCount === N) {",
+              "                            pm.collectionVariables.set(\"registered_users\", JSON.stringify(users));",
+              "                            console.log(`✅ All ${N} users registered successfully!`);",
+              "                            console.log(\"Registered users:\", users.map(u => ({username: u.username, id: u.profile_id})));",
+              "                        }",
+              "                    });",
+              "                } else {",
+              "                    completedCount++;",
+              "                    console.log(`❌ Login failed for ${username}, status: ${res2 ? res2.code : 'no response'}`);",
+              "                    ",
+              "                    if (completedCount === N) {",
+              "                        pm.collectionVariables.set(\"registered_users\", JSON.stringify(users));",
+              "                        console.log(`⚠️ Registration completed with ${users.length} successful users out of ${N}`);",
+              "                    }",
+              "                }",
+              "            });",
+              "        } else {",
+              "            completedCount++;",
+              "            console.log(`❌ Registration failed for user ${i}, status: ${res ? res.code : 'no response'}, error: ${err}`);",
+              "            ",
+              "            if (completedCount === N) {",
+              "                pm.collectionVariables.set(\"registered_users\", JSON.stringify(users));",
+              "                console.log(`⚠️ Registration completed with ${users.length} successful users out of ${N}`);",
+              "            }",
+              "        }",
+              "    });",
+              "}",
+              "",
+              "// Keep the script running to wait for async requests",
+              "// This is needed for Postman pre-request scripts"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8080/stats",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "stats"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "2. Add All Users as Friends",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Get registered users",
+              "const users = JSON.parse(pm.collectionVariables.get(\"registered_users\") || \"[]\");",
+              "",
+              "if (users.length === 0) {",
+              "    console.log(\"❌ No registered users found. Run registration first.\");",
+              "    return;",
+              "}",
+              "",
+              "console.log(`Adding friends for ${users.length} users...`);",
+              "",
+              "// For each user, add all other users as friends",
+              "users.forEach((user, index) => {",
+              "    console.log(`User ${index + 1}/${users.length}: ${user.username} adding friends...`);",
+              "    ",
+              "    users.forEach((otherUser) => {",
+              "        if (user.profile_id !== otherUser.profile_id) {",
+              "            // Add friend request using new endpoint /friend/add",
+              "            const friendRequestBody = {",
+              "                friend_id: otherUser.profile_id",
+              "            };",
+              "            ",
+              "            pm.sendRequest({",
+              "                url: \"http://localhost:8080/friend/add\",",
+              "                method: \"POST\",",
+              "                header: {",
+              "                    \"Content-Type\": \"application/json\",",
+              "                    \"Authorization\": `Bearer ${user.token}`",
+              "                },",
+              "                body: JSON.stringify(friendRequestBody)",
+              "            }, function (err, res) {",
+              "                if (!err && res.status === \"OK\") {",
+              "                    console.log(`  ✅ Added friend: ${otherUser.username} (ID: ${otherUser.profile_id})`);",
+              "                } else {",
+              "                    console.log(`  ❌ Failed to add friend: ${otherUser.username}`);",
+              "                }",
+              "            });",
+              "        }",
+              "    });",
+              "});",
+              "",
+              "setTimeout(() => {",
+              "    console.log(\"✅ All friend requests processed!\");",
+              "}, 2000);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"friend_id\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8080/stats",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "stats"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "3. Create Posts from Source",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Get registered users",
+              "const users = JSON.parse(pm.collectionVariables.get(\"registered_users\") || \"[]\");",
+              "const N = parseInt(pm.collectionVariables.get(\"N_users\")) || 5;",
+              "",
+              "if (users.length === 0) {",
+              "    console.log(\"❌ No registered users found. Run registration first.\");",
+              "    return;",
+              "}",
+              "",
+              "console.log(\"Fetching posts from source...\");",
+              "",
+              "// Fetch posts from GitHub",
+              "pm.sendRequest({",
+              "    url: \"https://raw.githubusercontent.com/OtusTeam/highload/refs/heads/master/homework/posts.txt\",",
+              "    method: \"GET\"",
+              "}, function (err, res) {",
+              "    if (err) {",
+              "        console.log(\"❌ Error fetching posts:\", err);",
+              "        return;",
+              "    }",
+              "    ",
+              "    const postsText = res.text();",
+              "    ",
+              "    // Split text into sentences or paragraphs",
+              "    const sentences = postsText.split(/[.!?]+/).filter(s => s.trim().length > 10);",
+              "    console.log(`Found ${sentences.length} sentences in source`);",
+              "    ",
+              "    // Счетчики для отслеживания прогресса",
+              "    let totalPosts = users.length * N;",
+              "    let completedPosts = 0;",
+              "    let failedPosts = 0;",
+              "    ",
+              "    // For each user, create N posts",
+              "    users.forEach((user, userIndex) => {",
+              "        console.log(`User ${userIndex + 1}/${users.length}: ${user.username} creating ${N} posts...`);",
+              "        ",
+              "        for (let i = 0; i < N; i++) {",
+              "            // Создаем замыкание для сохранения значений",
+              "            (function(postIndex, username, token) {",
+              "                // Select random sentences for this post",
+              "                const numSentences = Math.floor(Math.random() * 3) + 2; // 2-4 sentences per post",
+              "                let postContent = \"\";",
+              "                ",
+              "                for (let j = 0; j < numSentences; j++) {",
+              "                    const randomIndex = Math.floor(Math.random() * sentences.length);",
+              "                    postContent += sentences[randomIndex].trim() + \". \";",
+              "                }",
+              "                ",
+              "                // Trim and limit content length",
+              "                postContent = postContent.trim();",
+              "                if (postContent.length > 1000) {",
+              "                    postContent = postContent.substring(0, 997) + \"...\";",
+              "                }",
+              "                ",
+              "                const postRequestBody = {",
+              "                    content: postContent",
+              "                };",
+              "                ",
+              "                pm.sendRequest({",
+              "                    url: \"http://localhost:8080/post/create\",",
+              "                    method: \"POST\",",
+              "                    header: {",
+              "                        \"Content-Type\": \"application/json\",",
+              "                        \"Authorization\": \"Bearer \" + token",
+              "                    },",
+              "                    body: {",
+              "                        mode: \"raw\",",
+              "                        raw: JSON.stringify(postRequestBody)",
+              "                    }",
+              "                }, function (err2, res2) {",
+              "                    completedPosts++;",
+              "                    ",
+              "                    if (!err2 && res2.code >= 200 && res2.code < 300) {",
+              "                        console.log(`  ✅ Post ${postIndex+1}/${N} created for ${username}`);",
+              "                    } else {",
+              "                        failedPosts++;",
+              "                        const statusCode = res2 ? res2.code : 'no response';",
+              "                        console.log(`  ❌ Failed to create post ${postIndex+1} for ${username} (status: ${statusCode})`);",
+              "                        ",
+              "                        // Выводим дополнительную информацию об ошибке",
+              "                        if (res2 && res2.text()) {",
+              "                            try {",
+              "                                const errorBody = res2.json();",
+              "                                console.log(`     Error details: ${JSON.stringify(errorBody)}`);",
+              "                            } catch (e) {",
+              "                                console.log(`     Response: ${res2.text().substring(0, 200)}`);",
+              "                            }",
+              "                        }",
+              "                    }",
+              "                    ",
+              "                    // Когда все посты обработаны",
+              "                    if (completedPosts === totalPosts) {",
+              "                        const successPosts = totalPosts - failedPosts;",
+              "                        console.log(\"\\n=== POST CREATION SUMMARY ===\");",
+              "                        console.log(`✅ Successfully created: ${successPosts}/${totalPosts} posts`);",
+              "                        if (failedPosts > 0) {",
+              "                            console.log(`❌ Failed: ${failedPosts} posts`);",
+              "                        }",
+              "                        console.log(\"==============================\\n\");",
+              "                    }",
+              "                });",
+              "            })(i, user.username, user.token);",
+              "        }",
+              "    });",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8080/stats",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "stats"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "4. Get Friends Feed",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Get registered users",
+              "const users = JSON.parse(pm.collectionVariables.get(\"registered_users\") || \"[]\");",
+              "",
+              "if (users.length === 0) {",
+              "    console.log(\"❌ No registered users found. Run registration first.\");",
+              "    return;",
+              "}",
+              "",
+              "console.log(\"Getting friends feed for all users...\");",
+              "",
+              "// Store feeds for analysis",
+              "const allFeeds = [];",
+              "",
+              "// For each user, get their friends feed",
+              "users.forEach((user, index) => {",
+              "    console.log(`Fetching feed for user ${index + 1}/${users.length}: ${user.username}`);",
+              "    ",
+              "    pm.sendRequest({",
+              "        url: \"http://localhost:8080/post/feed\",",
+              "        method: \"GET\",",
+              "        header: {",
+              "            \"Authorization\": `Bearer ${user.token}`",
+              "        }",
+              "    }, function (err, res) {",
+              "        if (!err && res.status === \"OK\") {",
+              "            const feed = res.json();",
+              "            allFeeds.push({",
+              "                username: user.username,",
+              "                feed: feed",
+              "            });",
+              "            console.log(`  ✅ Feed retrieved for ${user.username}: ${feed.length || feed.posts?.length || 0} posts`);",
+              "            ",
+              "            if (allFeeds.length === users.length) {",
+              "                pm.collectionVariables.set(\"all_feeds\", JSON.stringify(allFeeds));",
+              "                console.log(\"✅ All feeds retrieved successfully!\");",
+              "                ",
+              "                // Print summary",
+              "                console.log(\"\\n=== FEED SUMMARY ===\");",
+              "                allFeeds.forEach(f => {",
+              "                    const postCount = f.feed.length || f.feed.posts?.length || 0;",
+              "                    console.log(`${f.username}: ${postCount} posts in feed`);",
+              "                });",
+              "            }",
+              "        } else {",
+              "            console.log(`  ❌ Failed to get feed for ${user.username}`);",
+              "        }",
+              "    });",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/stats",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "stats"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "5. Display Statistics",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const users = JSON.parse(pm.collectionVariables.get(\"registered_users\") || \"[]\");",
+              "const allFeeds = JSON.parse(pm.collectionVariables.get(\"all_feeds\") || \"[]\");",
+              "const N = parseInt(pm.collectionVariables.get(\"N_users\")) || 5;",
+              "",
+              "console.log(\"\\n╔══════════════════════════════════╗\");",
+              "console.log(\"║        TEST STATISTICS           ║\");",
+              "console.log(\"╚══════════════════════════════════╝\");",
+              "",
+              "console.log(`📊 Total users registered: ${users.length}`);",
+              "console.log(`📊 Expected users: ${N}`);",
+              "",
+              "console.log(\"\\n👥 Registered Users:\");",
+              "users.forEach((user, i) => {",
+              "    console.log(`  ${i+1}. Username: ${user.username}, ID: ${user.profile_id}`);",
+              "});",
+              "",
+              "console.log(\"\\n🤝 Friends Network:\");",
+              "users.forEach(user => {",
+              "    console.log(`  ${user.username} should be friends with ${users.length - 1} other users`);",
+              "});",
+              "",
+              "console.log(`\\n📝 Posts created: ${N} posts per user = ${N * users.length} total posts`);",
+              "",
+              "console.log(\"\\n📱 Feed Results:\");",
+              "if (allFeeds.length > 0) {",
+              "    allFeeds.forEach(f => {",
+              "        const postCount = f.feed.length || f.feed.posts?.length || 0;",
+              "        console.log(`  ${f.username}: ${postCount} posts`);",
+              "    });",
+              "    ",
+              "    const expectedPostsPerFeed = (users.length - 1) * N;",
+              "    console.log(`\\n💡 Expected posts per feed: ${expectedPostsPerFeed} (${users.length - 1} friends × ${N} posts)`);",
+              "} else {",
+              "    console.log(\"  ⚠️ Run 'Get Friends Feed' request first to see feed statistics\");",
+              "}",
+              "",
+              "console.log(\"\\n═══════════════════════════════════\\n\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/stats",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "stats"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer"
+  },
+  "variable": [
+    {
+      "key": "N_users",
+      "value": "5"
+    },
+    {
+      "key": "registered_users",
+      "value": "[]"
+    },
+    {
+      "key": "all_feeds",
+      "value": "[]"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "profile_id",
+      "value": ""
+    },
+    {
+      "key": "username",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": ""
+    }
+  ]
+}

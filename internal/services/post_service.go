@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"example.com/highload/myproject/internal/feed"
 	"example.com/highload/myproject/internal/models"
@@ -11,13 +12,14 @@ import (
 )
 
 type PostService struct {
-	store  *store.PostStore
-	cache  *feed.Cache
-	worker *feed.Worker
+	store       *store.PostStore
+	friendStore *store.FriendStore
+	cache       *feed.Cache
+	worker      *feed.Worker
 }
 
-func NewPostService(store *store.PostStore, cache *feed.Cache, worker *feed.Worker) *PostService {
-	return &PostService{store: store, cache: cache, worker: worker}
+func NewPostService(store *store.PostStore, friendStore *store.FriendStore, cache *feed.Cache, worker *feed.Worker) *PostService {
+	return &PostService{store: store, friendStore: friendStore, cache: cache, worker: worker}
 }
 
 func (s *PostService) CreatePost(ctx context.Context, authorID uuid.UUID, dto models.CreatePostDTO) (models.GetPostDTO, error) {
@@ -40,15 +42,41 @@ func (s *PostService) CreatePost(ctx context.Context, authorID uuid.UUID, dto mo
 		CreatedAt: post.CreatedAt,
 	}
 
-	s.worker.Enqueue(feed.Event{
-		Type:      feed.EventPostCreated,
-		PostID:    post.PostID,
-		AuthorID:  post.AuthorID,
-		Content:   post.Content,
-		CreatedAt: post.CreatedAt,
-	})
+	// Pre-warm cache: immediately insert post into friends' feeds
+	go s.prewarmCacheForFollowers(post.PostID, post.AuthorID, post.Content, post.CreatedAt)
 
 	return result, nil
+}
+
+// prewarmCacheForFollowers synchronously inserts the post into the cache for all followers
+func (s *PostService) prewarmCacheForFollowers(postID, authorID uuid.UUID, content string, createdAt time.Time) {
+	ctx := context.Background()
+
+	// Get followers from friend store (using replica for read)
+	followerIDs, err := s.friendStore.GetFriendIDs(ctx, authorID)
+	if err != nil {
+		slog.Error("prewarm cache: failed to get friends", "authorID", authorID, "error", err)
+		return
+	}
+
+	// Include the author themselves
+	allIDs := make([]uuid.UUID, 0, len(followerIDs)+1)
+	allIDs = append(allIDs, authorID) // add self first
+	allIDs = append(allIDs, followerIDs...)
+
+	if len(allIDs) == 0 {
+		return
+	}
+
+	postDTO := models.GetPostDTO{
+		PostID:    postID,
+		AuthorID:  authorID,
+		Content:   content,
+		CreatedAt: createdAt,
+	}
+
+	s.cache.InsertPost(allIDs, postDTO)
+	slog.Debug("prewarm cache: inserted post for", "followers", len(allIDs))
 }
 
 func (s *PostService) GetPost(ctx context.Context, postID string) (models.GetPostDTO, error) {
@@ -92,11 +120,8 @@ func (s *PostService) UpdatePost(ctx context.Context, authorID uuid.UUID, dto mo
 		CreatedAt: post.CreatedAt,
 	}
 
-	s.worker.Enqueue(feed.Event{
-		Type:    feed.EventPostUpdated,
-		PostID:  post.PostID,
-		Content: post.Content,
-	})
+	// Immediately update post in cache (much faster than full rebuild)
+	s.cache.UpdatePost(post.PostID, post.Content)
 
 	return result, nil
 }
@@ -111,15 +136,13 @@ func (s *PostService) DeletePost(ctx context.Context, authorID uuid.UUID, postID
 		return err
 	}
 
-	s.worker.Enqueue(feed.Event{
-		Type:   feed.EventPostDeleted,
-		PostID: id,
-	})
+	// Immediately delete post from cache (no need for async worker)
+	s.cache.DeletePost(id)
 
 	return nil
 }
 
-func (s *PostService) Feed(ctx context.Context, userID uuid.UUID, query models.FeedQueryDTO) ([]models.GetPostDTO, error) {
+func (s *PostService) Feed(ctx context.Context, userID uuid.UUID, query models.FeedQueryDTO) (models.FeedResponseDTO, error) {
 	limit := query.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -131,13 +154,16 @@ func (s *PostService) Feed(ctx context.Context, userID uuid.UUID, query models.F
 
 	if posts := s.cache.Get(userID, limit, offset); posts != nil {
 		slog.Debug("GETTING FEED FROM CACHE", "USERID", userID)
-		return posts, nil
+		return models.FeedResponseDTO{
+			Posts:  posts,
+			Source: "cache",
+		}, nil
 	}
 
 	// Cache miss, fetch full feed and set cache
 	fullPosts, err := s.store.Feed(ctx, userID, 1000, 0)
 	if err != nil {
-		return nil, err
+		return models.FeedResponseDTO{}, err
 	}
 
 	cachePosts := make([]models.GetPostDTO, 0, len(fullPosts))
@@ -152,7 +178,10 @@ func (s *PostService) Feed(ctx context.Context, userID uuid.UUID, query models.F
 	s.cache.Set(userID, cachePosts)
 
 	// Now return from cache
-	return s.cache.Get(userID, limit, offset), nil
+	return models.FeedResponseDTO{
+		Posts:  s.cache.Get(userID, limit, offset),
+		Source: "db",
+	}, nil
 }
 
 func (s *PostService) RebuildFeed(ctx context.Context, userID uuid.UUID) error {

@@ -33,3 +33,8 @@ type FeedQueryDTO struct {
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 }
+
+type FeedResponseDTO struct {
+	Posts  []GetPostDTO `json:"posts"`
+	Source string       `json:"source"`
+}

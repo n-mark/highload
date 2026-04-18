@@ -77,7 +77,7 @@ func main() {
 	defer feedWorker.Stop()
 
 	friendService := services.NewFriendService(friendStore, feedWorker)
-	postService := services.NewPostService(postStore, feedCache, feedWorker)
+	postService := services.NewPostService(postStore, friendStore, feedCache, feedWorker)
 
 	middleware := auth.NewMiddleware(jwtManager)
 
