@@ -71,3 +71,26 @@ func (s *FriendStore) GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uui
     }
     return ids, rows.Err()
 }
+
+// GetFollowers returns user IDs that have the given userID as a friend
+// (i.e. rows where friend_id = userID).
+func (s *FriendStore) GetFollowers(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+    rows, err := s.replica.Query(ctx,
+        "SELECT user_id FROM friendship WHERE friend_id=$1",
+        userID,
+    )
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var ids []uuid.UUID
+    for rows.Next() {
+        var id uuid.UUID
+        if err := rows.Scan(&id); err != nil {
+            return nil, err
+        }
+        ids = append(ids, id)
+    }
+    return ids, rows.Err()
+}

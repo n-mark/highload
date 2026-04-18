@@ -2,18 +2,22 @@ package services
 
 import (
 	"context"
+	"log/slog"
 
+	"example.com/highload/myproject/internal/feed"
 	"example.com/highload/myproject/internal/models"
 	"example.com/highload/myproject/internal/store"
 	"github.com/google/uuid"
 )
 
 type PostService struct {
-	store *store.PostStore
+	store  *store.PostStore
+	cache  *feed.Cache
+	worker *feed.Worker
 }
 
-func NewPostService(store *store.PostStore) *PostService {
-	return &PostService{store: store}
+func NewPostService(store *store.PostStore, cache *feed.Cache, worker *feed.Worker) *PostService {
+	return &PostService{store: store, cache: cache, worker: worker}
 }
 
 func (s *PostService) CreatePost(ctx context.Context, authorID uuid.UUID, dto models.CreatePostDTO) (models.GetPostDTO, error) {
@@ -29,12 +33,22 @@ func (s *PostService) CreatePost(ctx context.Context, authorID uuid.UUID, dto mo
 		return models.GetPostDTO{}, err
 	}
 
-	return models.GetPostDTO{
+	result := models.GetPostDTO{
 		PostID:    post.PostID,
 		AuthorID:  post.AuthorID,
 		Content:   post.Content,
 		CreatedAt: post.CreatedAt,
-	}, nil
+	}
+
+	s.worker.Enqueue(feed.Event{
+		Type:      feed.EventPostCreated,
+		PostID:    post.PostID,
+		AuthorID:  post.AuthorID,
+		Content:   post.Content,
+		CreatedAt: post.CreatedAt,
+	})
+
+	return result, nil
 }
 
 func (s *PostService) GetPost(ctx context.Context, postID string) (models.GetPostDTO, error) {
@@ -71,12 +85,20 @@ func (s *PostService) UpdatePost(ctx context.Context, authorID uuid.UUID, dto mo
 		return models.GetPostDTO{}, err
 	}
 
-	return models.GetPostDTO{
+	result := models.GetPostDTO{
 		PostID:    post.PostID,
 		AuthorID:  post.AuthorID,
 		Content:   post.Content,
 		CreatedAt: post.CreatedAt,
-	}, nil
+	}
+
+	s.worker.Enqueue(feed.Event{
+		Type:    feed.EventPostUpdated,
+		PostID:  post.PostID,
+		Content: post.Content,
+	})
+
+	return result, nil
 }
 
 func (s *PostService) DeletePost(ctx context.Context, authorID uuid.UUID, postID string) error {
@@ -84,7 +106,17 @@ func (s *PostService) DeletePost(ctx context.Context, authorID uuid.UUID, postID
 	if err != nil {
 		return store.ErrPostNotFound
 	}
-	return s.store.Delete(ctx, id, authorID)
+
+	if err := s.store.Delete(ctx, id, authorID); err != nil {
+		return err
+	}
+
+	s.worker.Enqueue(feed.Event{
+		Type:   feed.EventPostDeleted,
+		PostID: id,
+	})
+
+	return nil
 }
 
 func (s *PostService) Feed(ctx context.Context, userID uuid.UUID, query models.FeedQueryDTO) ([]models.GetPostDTO, error) {
@@ -97,19 +129,37 @@ func (s *PostService) Feed(ctx context.Context, userID uuid.UUID, query models.F
 		offset = 0
 	}
 
-	posts, err := s.store.Feed(ctx, userID, limit, offset)
+	if posts := s.cache.Get(userID, limit, offset); posts != nil {
+		slog.Debug("GETTING FEED FROM CACHE", "USERID", userID)
+		return posts, nil
+	}
+
+	// Cache miss, fetch full feed and set cache
+	fullPosts, err := s.store.Feed(ctx, userID, 1000, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]models.GetPostDTO, 0, len(posts))
-	for _, p := range posts {
-		result = append(result, models.GetPostDTO{
+	cachePosts := make([]models.GetPostDTO, 0, len(fullPosts))
+	for _, p := range fullPosts {
+		cachePosts = append(cachePosts, models.GetPostDTO{
 			PostID:    p.PostID,
 			AuthorID:  p.AuthorID,
 			Content:   p.Content,
 			CreatedAt: p.CreatedAt,
 		})
 	}
-	return result, nil
+	s.cache.Set(userID, cachePosts)
+
+	// Now return from cache
+	return s.cache.Get(userID, limit, offset), nil
+}
+
+func (s *PostService) RebuildFeed(ctx context.Context, userID uuid.UUID) error {
+	return s.worker.RebuildUser(ctx, userID)
+}
+
+func (s *PostService) RebuildAllFeeds(ctx context.Context) error {
+	s.worker.RebuildAll(ctx)
+	return nil
 }

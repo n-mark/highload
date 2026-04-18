@@ -175,3 +175,32 @@ func (h *PostHandler) Feed(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, posts)
 }
+
+func (h *PostHandler) RebuildFeed(w http.ResponseWriter, r *http.Request) {
+	userStr, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID, err := uuid.Parse(userStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.service.RebuildFeed(r.Context(), userID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *PostHandler) RebuildAllFeeds(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.RebuildAllFeeds(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}

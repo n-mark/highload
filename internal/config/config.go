@@ -12,9 +12,11 @@ type Config struct {
 	DBName         string
 	DBUser         string
 	DBPassword     string
-	DBReplicaHosts string // comma-separated: host1:port1,host2:port2
+	DBReplicaHosts string // comma-separated: host1:port1
 	JWTSecret      string
 	ServerAddr     string
+	RedisAddr      string
+	KafkaBrokers   string // comma-separated
 }
 
 func Load() Config {
@@ -27,6 +29,8 @@ func Load() Config {
 		DBReplicaHosts: getEnv("DB_REPLICA_HOSTS", ""),
 		JWTSecret:      getEnv("JWT_SECRET", "change-me-secret"),
 		ServerAddr:     getEnv("SERVER_ADDR", ":8080"),
+		RedisAddr:      getEnv("REDIS_ADDR", "localhost:6379"),
+		KafkaBrokers:   getEnv("KAFKA_BROKERS", "localhost:9092"),
 	}
 }
 
@@ -58,6 +62,13 @@ func (c Config) ReplicaDSNs() []string {
 		return []string{c.DSN()}
 	}
 	return dsns
+}
+
+func (c Config) KafkaBrokerList() []string {
+	if c.KafkaBrokers == "" {
+		return []string{"localhost:9092"}
+	}
+	return strings.Split(strings.ReplaceAll(c.KafkaBrokers, " ", ""), ",")
 }
 
 func getEnv(key, fallback string) string {

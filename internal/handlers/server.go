@@ -49,5 +49,8 @@ func (s *Server) Router() http.Handler {
     mux.HandleFunc("/post/get", s.postHandler.GetPost)
     mux.Handle("/post/feed", s.middleware.RequireAuth(http.HandlerFunc(s.postHandler.Feed)))
 
+    mux.Handle("/post/rebuild", s.middleware.RequireAuth(http.HandlerFunc(s.postHandler.RebuildFeed)))
+    mux.Handle("/post/rebuild-all", s.middleware.RequireAuth(http.HandlerFunc(s.postHandler.RebuildAllFeeds)))
+
     return metrics.Middleware(mux)
 }

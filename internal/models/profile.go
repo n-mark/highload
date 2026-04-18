@@ -38,6 +38,7 @@ type ProfileDTO struct {
 type GetProfileDTO struct {
 	ProfileDTO
 	ProfileID uuid.UUID `json:"profile_id"`
+	UserID uuid.UUID `json:"user_id"`
 }
 
 type QueryDTO struct {

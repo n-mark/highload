@@ -3,17 +3,33 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 
 	"example.com/highload/myproject/internal/auth"
 	"example.com/highload/myproject/internal/config"
+	"example.com/highload/myproject/internal/feed"
 	"example.com/highload/myproject/internal/handlers"
 	"example.com/highload/myproject/internal/services"
 	"example.com/highload/myproject/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func initLogger() {
+	level := slog.LevelInfo
+	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: level,
+	})))
+}
+
 func main() {
+	initLogger()
+
 	cfg := config.Load()
 
 	db, err := pgxpool.New(context.Background(), cfg.DSN())
@@ -53,8 +69,15 @@ func main() {
 	userService := services.NewUserService(userStore, passwordHasher)
 	profileService := services.NewProfileService(profileStore)
 	authService := services.NewAuthService(userStore, passwordHasher, jwtManager)
-	friendService := services.NewFriendService(friendStore)
-	postService := services.NewPostService(postStore)
+
+	// Feed cache and worker
+	feedCache := feed.NewCache(cfg.RedisAddr)
+	feedWorker := feed.NewWorker(feedCache, friendStore, postStore, cfg.KafkaBrokerList(), "feed-events")
+	feedWorker.Start(4, cfg.KafkaBrokerList(), "feed-events")
+	defer feedWorker.Stop()
+
+	friendService := services.NewFriendService(friendStore, feedWorker)
+	postService := services.NewPostService(postStore, feedCache, feedWorker)
 
 	middleware := auth.NewMiddleware(jwtManager)
 
