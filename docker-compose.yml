@@ -164,6 +164,8 @@ services:
     volumes:
       - citus_coordinator_data:/var/lib/postgresql/data
       - ./db/citus/init:/docker-entrypoint-initdb.d
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
       interval: 5s
@@ -185,6 +187,8 @@ services:
       PGDATA: /var/lib/postgresql/data
     volumes:
       - citus_worker1_data:/var/lib/postgresql/data
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
       interval: 5s
@@ -206,6 +210,8 @@ services:
       PGDATA: /var/lib/postgresql/data
     volumes:
       - citus_worker2_data:/var/lib/postgresql/data
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
       interval: 5s
@@ -227,6 +233,8 @@ services:
       PGDATA: /var/lib/postgresql/data
     volumes:
       - citus_worker3_data:/var/lib/postgresql/data
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
       interval: 5s
@@ -234,6 +242,30 @@ services:
       retries: 15
     networks:
       - pgcluster
+
+  # citus-worker4:
+  #   image: citusdata/citus:14.0.0
+  #   container_name: hl_citus_worker4
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5439:5432"
+  #   environment:
+  #     POSTGRES_DB: social_dialogs
+  #     POSTGRES_USER: citus_user
+  #     POSTGRES_PASSWORD: citus_pass
+  #     PGDATA: /var/lib/postgresql/data
+  #   volumes:
+  #     - citus_worker4_data:/var/lib/postgresql/data
+  #     - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+  #   command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 15
+  #   networks:
+  #     - pgcluster
+
 
   # Registers workers with the coordinator after all nodes are healthy
   citus-setup:
@@ -340,6 +372,8 @@ volumes:
     name: highload-homework3_citus_worker2
   citus_worker3_data:
     name: highload-homework3_citus_worker3
+  # citus_worker4_data:
+  #   name: highload-homework3_citus_worker4
 
 
 networks:

@@ -31,7 +31,7 @@ func conversationID(a, b uuid.UUID) string {
 
 ```sql
 CREATE TABLE messages (
-    id              uuid        NOT NULL DEFAULT gen_random_uuid(),
+    id              uuid        NOT NULL DEFAULT uuidv7(),
     conversation_id text        NOT NULL,  -- ключ шардирования
     from_user_id    uuid        NOT NULL,
     to_user_id      uuid        NOT NULL,
