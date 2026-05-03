@@ -17,6 +17,13 @@ type Config struct {
 	ServerAddr     string
 	RedisAddr      string
 	KafkaBrokers   string // comma-separated
+
+	// Citus coordinator — separate connection used only for the dialog subsystem
+	CitusHost     string
+	CitusPort     string
+	CitusDB       string
+	CitusUser     string
+	CitusPassword string
 }
 
 func Load() Config {
@@ -31,6 +38,12 @@ func Load() Config {
 		ServerAddr:     getEnv("SERVER_ADDR", ":8080"),
 		RedisAddr:      getEnv("REDIS_ADDR", "localhost:6379"),
 		KafkaBrokers:   getEnv("KAFKA_BROKERS", "localhost:9092"),
+
+		CitusHost:     getEnv("CITUS_HOST", "localhost"),
+		CitusPort:     getEnv("CITUS_PORT", "5435"),
+		CitusDB:       getEnv("CITUS_DB", "social_dialogs"),
+		CitusUser:     getEnv("CITUS_USER", "citus_user"),
+		CitusPassword: getEnv("CITUS_PASSWORD", "citus_pass"),
 	}
 }
 
@@ -38,6 +51,14 @@ func (c Config) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName,
+	)
+}
+
+// CitusDSN returns the connection string for the Citus coordinator.
+func (c Config) CitusDSN() string {
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		c.CitusUser, c.CitusPassword, c.CitusHost, c.CitusPort, c.CitusDB,
 	)
 }
 

@@ -79,9 +79,24 @@ func main() {
 	friendService := services.NewFriendService(friendStore, feedWorker)
 	postService := services.NewPostService(postStore, friendStore, feedCache, feedWorker)
 
+	// Citus — separate pool for the dialog/messaging subsystem
+	citusPool, err := pgxpool.New(context.Background(), cfg.CitusDSN())
+	if err != nil {
+		log.Fatalf("failed to connect to Citus coordinator: %v", err)
+	}
+	defer citusPool.Close()
+
+	if err := citusPool.Ping(context.Background()); err != nil {
+		log.Fatalf("Citus coordinator is not reachable: %v", err)
+	}
+	log.Println("connected to Citus coordinator")
+
+	dialogStore := store.NewDialogStore(citusPool)
+	dialogService := services.NewDialogService(dialogStore)
+
 	middleware := auth.NewMiddleware(jwtManager)
 
-	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB, friendService, postService)
+	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB, friendService, postService, dialogService)
 
 	log.Printf("listening on %s", cfg.ServerAddr)
 	if err := http.ListenAndServe(cfg.ServerAddr, server.Router()); err != nil {

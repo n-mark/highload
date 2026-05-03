@@ -1,114 +1,117 @@
-# ДЗ 4. Кеширование
+# ДЗ 5. Масштабируемая подсистема диалогов
 
-## Как работает инвалидация кеша?
+## Архитектура диалогов (Citus)
 
-Инвалидация кеша в системе реализована по принципу событий (event-driven) с использованием Apache Kafka. Все операции, влияющие на ленту пользователя, публикуют события в топик `feed-events`, а воркер-обработчик обновляет кеш в Redis соответствующим образом.
+### Выбор ключа шардирования
 
-### Механизмы инвалидации
+Таблица `messages` шардируется по полю `conversation_id`.
 
-| Событие | Действие с кешем | Описание |
-|---------|------------------|----------|
-| `EventPostCreated` | `InsertPost` | Новый пост вставляется в ленты всех подписчиков автора |
-| `EventPostUpdated` | `UpdatePost` | Обновляется содержимое поста в Redis (быстрая операция) |
-| `EventPostDeleted` | `DeletePost` | Пост удаляется из лент всех пользователей и из кеша |
-| `EventFriendRemoved` | `Invalidate` | Полная инвалидация ленты пользователя (friendID) |
-| `EventFriendAdded` | `RebuildFeed` | Перестройка ленты пользователя (friendID), чтобы включить посты нового друга |
-
-### Детали реализации
-
-**1. InsertPost** (`cache.go`):
-- Пост сохраняется в Redis с ключом `post:<postID>`
-- Для каждого подписчика создаётся запись в отсортированном множестве `feeder:<userID>` с score = timestamp поста
-- Множество `post_users:<postID>` отслеживает, в чьих лентах содержится пост
-- При вставке лишние записи (старше 1000) обрезаются командой `ZRemRangeByRank`
-
-**2. Invalidate** (`cache.go`):
-- Выполняет `DEL` ключа `feeder:<userID>`
-- Лента будет перестроена при следующем запросе (cache-aside pattern)
-
-**3. DeletePost** (`cache.go`):
-- Получает список всех пользователей из `post_users:<postID>`
-- Удаляет postID из каждой ленты (`ZRem`)
-- Удаляет сам пост и вспомогательные ключи
-
-### Схема ключей Redis
-
-```
-feeder:<userID>     -> Sorted Set (postID, timestamp)  - лента пользователя
-post:<postID>       -> String (JSON(GetPostDTO))       - детали поста
-post_users:<postID> -> Set (userID)                    - кто видит этот пост
-users_with_feeds    -> Set (userID)                    - все пользователи с кешированными лентами
-```
-
-## Как реализована перестройка кешей из СУБД?
-
-Перестройка кеша выполняется в двух сценариях:
-
-### 1. Отложенная перестройка (Lazy Rebuild)
-
-При cache-miss в `PostService.GetFeed`:
-1. Запрос к Redis не находит ленту → возвращается `nil`
-2. Выполняется полный запрос к БД: `store.Feed(userID, 1000, 0)`
-3. Результат сериализуется и записывается в Redis через `cache.Set()`
-4. Следующие запросы обслуживаются из кеша
+**`conversation_id`** — строковый ключ вида `<min_uuid>:<max_uuid>`, где UUID двух участников диалога расставляются в лексикографическом порядке для обеспечения консистентности хеша:
 
 ```go
-// internal/services/post_service.go
-if posts := s.cache.Get(userID, limit, offset); posts != nil {
-    slog.Debug("GETTING FEED FROM CACHE", "USERID", userID)
-    return models.FeedResponseDTO{Posts: posts, Source: "cache"}, nil
-}
-// Cache miss - fetch from DB and populate cache
-fullPosts, err := s.store.Feed(ctx, userID, 1000, 0)
-// ... serialize and call s.cache.Set(userID, cachePosts)
-```
-
-### 2. Принудительная перестройка (Triggered Rebuild)
-
-При добавлении друга (`EventFriendAdded`):
-1. Воркер получает событие из Kafka
-2. Вызывается `rebuildUserFeed(ctx, userID)`
-3. Из СУБД загружаются посты: `postStore.Feed(userID, maxFeedSize, 0)`
-4. Лента полностью перезаписывается: `cache.Set(userID, posts)`
-
-```go
-// internal/feed/worker.go
-func (w *Worker) rebuildUserFeed(ctx context.Context, userID uuid.UUID) {
-    posts, err := w.postStore.Feed(ctx, userID, maxFeedSize, 0)
-    if err != nil {
-        log.Printf("feed worker: failed to rebuild feed for %s: %v", userID, err)
-        return
+// internal/store/dialog_store.go
+func conversationID(a, b uuid.UUID) string {
+    as, bs := a.String(), b.String()
+    if as < bs {
+        return fmt.Sprintf("%s:%s", as, bs)
     }
-    // Convert to DTOs and write to cache
-    w.cache.Set(userID, dtos)
+    return fmt.Sprintf("%s:%s", bs, as)
 }
 ```
 
-### 3. Массовая перестройка (RebuildAll)
+Почему именно такой ключ:
 
-Для восстановления кеша после сбоя:
-```go
-func (w *Worker) RebuildAll(ctx context.Context) {
-    userIDs := w.cache.AllUserIDs()  // читаем из множества users_with_feeds
-    for _, uid := range userIDs {
-        w.rebuildUserFeed(ctx, uid)
-    }
-}
+| Критерий | Объяснение |
+|---|---|
+| **Локальность данных** | Все сообщения одного диалога (`A↔B`) всегда попадают на **один шард** |
+| **Равномерность** | UUID v4/v7 равномерно распределены, поэтому хэши conversation_id распределяются без «горячих» шардов |
+| **«Эффект Леди Гаги»** | Даже если один пользователь ведёт миллион диалогов, каждый диалог имеет **свой** `conversation_id` → его сообщения размазываются по **всем шардам**, а не сваливаются в один |
+
+### Схема таблицы
+
+```sql
+CREATE TABLE messages (
+    id              uuid        NOT NULL DEFAULT gen_random_uuid(),
+    conversation_id text        NOT NULL,  -- ключ шардирования
+    from_user_id    uuid        NOT NULL,
+    to_user_id      uuid        NOT NULL,
+    text            text        NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (conversation_id, id)      -- distribution col обязан быть в PK
+);
+
+SELECT create_distributed_table('messages', 'conversation_id', shard_count => 32);
 ```
 
-### Поток данных при перестройке
+### Решардинг без даунтайма
+
+Citus поддерживает онлайн-ребалансировку шардов через встроенный механизм `citus_rebalance_start()`.
+
+**Процесс:**
+
+1. **Добавить новый воркер** (например, `citus-worker4`) в `docker-compose.yml` по аналогии с существующими:
+   ```bash
+   docker compose up -d citus-worker4
+   ```
+
+2. **Зарегистрировать воркер на координаторе** (приложение продолжает работать):
+   ```sql
+   SELECT * FROM citus_add_node('citus-worker4', 5432);
+   ```
+
+3. **Запустить фоновую ребалансировку:**
+   ```sql
+   SELECT citus_rebalance_start();
+   ```
+   Citus копирует шарды на новый узел, затем атомарно переключает метаданные. Старые шарды продолжают обслуживать чтение и запись до момента переключения.
+
+4. **Следить за прогрессом:**
+   ```sql
+   SELECT * FROM citus_rebalance_status();
+   ```
+
+5. **Очистить старые шарды** (после успешного завершения):
+   ```sql
+   SELECT citus_cleanup_orphaned_shards();
+   ```
+
+**Даунтайм = 0** — переключение шарда на новый воркер занимает миллисекунды (только обновление записи в `pg_dist_shard_placement`), а само копирование данных выполняется в фоне.
+
+### API диалогов
+
+| Метод | URL | Описание |
+|---|---|---|
+| `POST` | `/dialog/{user_id}/send` | Отправить сообщение пользователю `user_id` |
+| `GET` | `/dialog/{user_id}/list` | Получить историю диалога с пользователем `user_id` |
+
+Оба эндпойнта требуют JWT-токена (`Authorization: Bearer <token>`).
+
+**Пример запроса:**
+```bash
+curl -X POST http://localhost:8080/dialog/<target_user_id>/send \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello!"}'
+
+curl http://localhost:8080/dialog/<target_user_id>/list \
+  -H "Authorization: Bearer <token>"
+```
+
+### Топология Citus в docker-compose
 
 ```
-User Request → Redis (miss) → PostgreSQL → Redis (Set) → Response
-                    ↓
-              Cache miss logged
-                    ↓
-         postStore.Feed() получает данные
-                    ↓
-         models.GetPostDTO{} маппинг
-                    ↓
-         cache.Set() записывает в Redis
+citus-coordinator :5435  ← точка входа приложения
+    ├── citus-worker1 :5436
+    └── citus-worker2 :5437
+    └── citus-worker3 :5438
 ```
+
+Кластер инициализируется сервисом `citus-setup`, который:
+1. Вызывает `citus_set_coordinator_host`
+2. Регистрирует воркеров через `citus_add_node`
+3. Завершается (`restart: no`) — приложение стартует только после него
+
+---
 
 ## Инструкция:
 1. Собрать проект с помощью команды `docker compose up -d --build` в корневой директории проекта

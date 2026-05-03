@@ -147,6 +147,132 @@ services:
     networks:
       - pgcluster
 
+  # ---------------------------------------------------------------------------
+  # Citus coordinator + workers (dialog subsystem)
+  # ---------------------------------------------------------------------------
+  citus-coordinator:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_coordinator
+    restart: unless-stopped
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - citus_coordinator_data:/var/lib/postgresql/data
+      - ./db/citus/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - pgcluster
+
+  citus-worker1:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_worker1
+    restart: unless-stopped
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - citus_worker1_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - pgcluster
+
+  citus-worker2:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_worker2
+    restart: unless-stopped
+    ports:
+      - "5437:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - citus_worker2_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - pgcluster
+
+  citus-worker3:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_worker3
+    restart: unless-stopped
+    ports:
+      - "5438:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - citus_worker3_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - pgcluster
+
+  # Registers workers with the coordinator after all nodes are healthy
+  citus-setup:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_setup
+    restart: "no"
+    depends_on:
+      citus-coordinator:
+        condition: service_healthy
+      citus-worker1:
+        condition: service_healthy
+      citus-worker2:
+        condition: service_healthy
+      citus-worker3:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: citus_pass
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo "Registering Citus workers with coordinator..."
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT citus_set_coordinator_host('citus-coordinator', 5432);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT * FROM citus_add_node('citus-worker1', 5432);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT * FROM citus_add_node('citus-worker2', 5432);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT * FROM citus_add_node('citus-worker3', 5432);"
+        echo "Workers registered. Distributing table across workers..."
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT create_distributed_table('messages', 'conversation_id', shard_count => 32);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "CREATE INDEX IF NOT EXISTS idx_messages_conv_time ON messages (conversation_id, created_at DESC);"
+        echo "Shards distributed and indexes created successfully."
+    networks:
+      - pgcluster
+
   app:
     build: .
     container_name: hl_app
@@ -165,6 +291,12 @@ services:
       REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:29092
       LOG_LEVEL: debug
+      # Citus coordinator for the dialog subsystem
+      CITUS_HOST: citus-coordinator
+      CITUS_PORT: 5432
+      CITUS_DB: social_dialogs
+      CITUS_USER: citus_user
+      CITUS_PASSWORD: citus_pass
     depends_on:
       postgres-master:
         condition: service_healthy
@@ -172,6 +304,8 @@ services:
         condition: service_started
       kafka:
         condition: service_started
+      citus-setup:
+        condition: service_completed_successfully
     networks:
       - pgcluster
 
@@ -198,6 +332,15 @@ volumes:
     name: highload-homework3_pgdata_slave1
   pgdata_slave2:
     name: highload-homework3_pgdata_slave2
+  citus_coordinator_data:
+    name: highload-homework3_citus_coordinator
+  citus_worker1_data:
+    name: highload-homework3_citus_worker1
+  citus_worker2_data:
+    name: highload-homework3_citus_worker2
+  citus_worker3_data:
+    name: highload-homework3_citus_worker3
+
 
 networks:
   pgcluster:
