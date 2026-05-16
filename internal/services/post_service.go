@@ -53,7 +53,7 @@ func (s *PostService) prewarmCacheForFollowers(postID, authorID uuid.UUID, conte
 	ctx := context.Background()
 
 	// Get followers from friend store (using replica for read)
-	followerIDs, err := s.friendStore.GetFriendIDs(ctx, authorID)
+	followerIDs, err := s.friendStore.GetFollowers(ctx, authorID)
 	if err != nil {
 		slog.Error("prewarm cache: failed to get friends", "authorID", authorID, "error", err)
 		return
