@@ -17,6 +17,7 @@ type Config struct {
 	ServerAddr     string
 	RedisAddr      string
 	KafkaBrokers   string // comma-separated
+	RabbitMQURL    string
 
 	// Citus coordinator — separate connection used only for the dialog subsystem
 	CitusHost     string
@@ -38,6 +39,7 @@ func Load() Config {
 		ServerAddr:     getEnv("SERVER_ADDR", ":8080"),
 		RedisAddr:      getEnv("REDIS_ADDR", "localhost:6379"),
 		KafkaBrokers:   getEnv("KAFKA_BROKERS", "localhost:9092"),
+		RabbitMQURL:    getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
 
 		CitusHost:     getEnv("CITUS_HOST", "localhost"),
 		CitusPort:     getEnv("CITUS_PORT", "5435"),

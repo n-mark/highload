@@ -14,6 +14,7 @@ import (
 	"example.com/highload/myproject/internal/handlers"
 	"example.com/highload/myproject/internal/services"
 	"example.com/highload/myproject/internal/store"
+	"example.com/highload/myproject/internal/ws"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -71,8 +72,16 @@ func main() {
 	authService := services.NewAuthService(userStore, passwordHasher, jwtManager)
 
 	// Feed cache and worker
+	// RabbitMQ publisher for real-time notifications
+	rabbitPublisher, err := feed.NewRabbitPublisher(cfg.RabbitMQURL, "posts.feed")
+	if err != nil {
+		log.Fatalf("failed to create RabbitMQ publisher: %v", err)
+	}
+	defer rabbitPublisher.Close()
+
+	// Feed cache and worker
 	feedCache := feed.NewCache(cfg.RedisAddr)
-	feedWorker := feed.NewWorker(feedCache, friendStore, postStore, cfg.KafkaBrokerList(), "feed-events")
+	feedWorker := feed.NewWorker(feedCache, friendStore, postStore, cfg.KafkaBrokerList(), "feed-events", rabbitPublisher)
 	feedWorker.Start(4, cfg.KafkaBrokerList(), "feed-events")
 	defer feedWorker.Stop()
 
@@ -96,7 +105,18 @@ func main() {
 
 	middleware := auth.NewMiddleware(jwtManager)
 
-	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB, friendService, postService, dialogService)
+	// WebSocket hub and RabbitMQ consumer for push notifications
+	wsHub := ws.NewHub()
+	go wsHub.Run()
+	rc, err := ws.NewRabbitConsumer(cfg.RabbitMQURL, "posts.feed", wsHub)
+	if err != nil {
+		log.Fatalf("failed to start RabbitMQ consumer: %v", err)
+	}
+	defer rc.Close()
+
+	wsHandler := ws.NewWSHandler(wsHub, jwtManager)
+
+	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB, friendService, postService, dialogService, wsHandler)
 
 	log.Printf("listening on %s", cfg.ServerAddr)
 	if err := http.ListenAndServe(cfg.ServerAddr, server.Router()); err != nil {

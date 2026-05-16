@@ -5,6 +5,7 @@ import (
 
 	"example.com/highload/myproject/internal/metrics"
 	"example.com/highload/myproject/internal/store"
+	"example.com/highload/myproject/internal/ws"
 )
 
 type Server struct {
@@ -15,10 +16,11 @@ type Server struct {
 	friendHandler  *FriendHandler
 	postHandler    *PostHandler
 	dialogHandler  *DialogHandler
+	wsHandler      *ws.WSHandler
 	middleware     AuthMiddleware
 }
 
-func NewServer(userService UserService, profileService ProfileService, authService AuthService, middleware AuthMiddleware, replica *store.ReplicaPool, friendService FriendService, postService PostService, dialogService DialogService) *Server {
+func NewServer(userService UserService, profileService ProfileService, authService AuthService, middleware AuthMiddleware, replica *store.ReplicaPool, friendService FriendService, postService PostService, dialogService DialogService, wsHandler *ws.WSHandler) *Server {
 	return &Server{
 		userHandler:    NewUserHandler(userService, middleware),
 		profileHandler: NewProfileHandler(profileService, middleware),
@@ -27,6 +29,7 @@ func NewServer(userService UserService, profileService ProfileService, authServi
 		friendHandler:  NewFriendHandler(friendService, middleware),
 		postHandler:    NewPostHandler(postService, middleware),
 		dialogHandler:  NewDialogHandler(dialogService, middleware),
+		wsHandler:      wsHandler,
 		middleware:     middleware,
 	}
 }
@@ -57,6 +60,8 @@ func (s *Server) Router() http.Handler {
 	// Dialog routes — sharded via Citus
 	// POST /dialog/{user_id}/send
 	// GET  /dialog/{user_id}/list
+	// WebSocket endpoint for feed updates
+	mux.Handle("/post/feed/posted", s.wsHandler)
 	mux.Handle("/dialog/", s.middleware.RequireAuth(s.dialogHandler))
 
 	return metrics.Middleware(mux)

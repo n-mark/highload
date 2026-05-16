@@ -42,6 +42,14 @@ func (s *PostService) CreatePost(ctx context.Context, authorID uuid.UUID, dto mo
 		CreatedAt: post.CreatedAt,
 	}
 
+	// Enqueue event so feed worker publishes to RabbitMQ asynchronously
+	go s.worker.Enqueue(feed.Event{
+		Type:      feed.EventPostCreated,
+		PostID:    post.PostID,
+		AuthorID:  post.AuthorID,
+		Content:   post.Content,
+		CreatedAt: post.CreatedAt,
+	})
 	// Pre-warm cache: immediately insert post into friends' feeds
 	go s.prewarmCacheForFollowers(post.PostID, post.AuthorID, post.Content, post.CreatedAt)
 

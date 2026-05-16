@@ -147,6 +147,19 @@ services:
     networks:
       - pgcluster
 
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: hl_rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - pgcluster
+
   # ---------------------------------------------------------------------------
   # Citus coordinator + workers (dialog subsystem)
   # ---------------------------------------------------------------------------
@@ -322,6 +335,7 @@ services:
       SERVER_ADDR: :8080
       REDIS_ADDR: redis:6379
       KAFKA_BROKERS: kafka:29092
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: debug
       # Citus coordinator for the dialog subsystem
       CITUS_HOST: citus-coordinator
@@ -336,8 +350,10 @@ services:
         condition: service_started
       kafka:
         condition: service_started
+      rabbitmq:
+        condition: service_started
       citus-setup:
-        condition: service_completed_successfully
+        condition: service_started
     networks:
       - pgcluster
 

@@ -17,12 +17,13 @@ type Worker struct {
 	cache       *Cache
 	friendStore *store.FriendStore
 	postStore   *store.PostStore
+	publisher   *RabbitPublisher
 	writer      *kafka.Writer
 	wg          sync.WaitGroup
 	stop        chan struct{}
 }
 
-func NewWorker(cache *Cache, friendStore *store.FriendStore, postStore *store.PostStore, brokers []string, topic string) *Worker {
+func NewWorker(cache *Cache, friendStore *store.FriendStore, postStore *store.PostStore, brokers []string, topic string, publisher *RabbitPublisher) *Worker {
 	writer := &kafka.Writer{
 		Addr:     kafka.TCP(brokers...),
 		Topic:    topic,
@@ -32,6 +33,7 @@ func NewWorker(cache *Cache, friendStore *store.FriendStore, postStore *store.Po
 		cache:       cache,
 		friendStore: friendStore,
 		postStore:   postStore,
+		publisher:   publisher,
 		writer:      writer,
 		stop:        make(chan struct{}),
 	}
@@ -144,6 +146,15 @@ func (w *Worker) handlePostCreated(ctx context.Context, event Event) {
 		CreatedAt: event.CreatedAt,
 	}
 	w.cache.InsertPost(allIDs, post)
+
+	if w.publisher != nil {
+		for _, uid := range allIDs {
+			log.Printf("feed worker: publishing rabbit event to user %s", uid)
+			if err := w.publisher.PublishPostForUser(uid, post); err != nil {
+				log.Printf("feed worker: failed to publish rabbit event for %s: %v", uid, err)
+			}
+		}
+	}
 }
 
 func (w *Worker) handlePostUpdated(ctx context.Context, event Event) {
