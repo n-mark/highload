@@ -40,6 +40,109 @@
 - При добавлении новых инстансов пропускная способность растёт линейно — добавили сервер → разделили нагрузку.
 
 
+## Hybrid Push / Pull модель ленты (защита от «celebrity»-нагрузки)
+
+### Проблема
+
+При чистом **push** (fan-out on write) один пост пользователя с 1 000 000 подписчиков порождает:
+- 1 000 000 записей в Redis (ZADD в ленту каждого подписчика)
+- 1 000 000 сообщений в RabbitMQ
+- 1 000 000 WebSocket push-уведомлений
+
+Это создаёт всплеск нагрузки и потенциально «убивает» систему.
+
+### Решение — гибридная модель
+
+Система разделяет друзей на два класса по порогу подписчиков (по умолчанию **10 000**, настраивается через `CELEBRITY_THRESHOLD`):
+
+| Класс | Определение | Модель |
+|-------|-------------|--------|
+| Обычный пользователь | `followers_count < threshold` | **Push** — пост размножается в ленты всех подписчиков |
+| Celebrity | `followers_count >= threshold` | **Pull** — пост хранится только в персональном ZSET; подписчики читают его при запросе ленты |
+
+### Поле `is_celebrity` в БД
+
+В таблице `users` добавлены атомарно обновляемые колонки:
+- `followers_count INT` — текущее число подписчиков
+- `is_celebrity BOOLEAN` — признак, вычисляемый при каждом добавлении/удалении друга в транзакции
+
+При `AddFriend` / `DeleteFriend` счётчик обновляется в той же транзакции, что и `INSERT/DELETE` в `friendship`. Флаг пересчитывается относительно порога. Если статус пользователя меняется (обычный → celebrity или наоборот), сервис логирует событие и валидирует кеш `CelebrityResolver`.
+
+### CelebrityResolver — двухуровневый кеш
+
+Чтобы минимизировать обращения к БД при проверке статуса автора поста, используется `CelebrityResolver`:
+- **L1** — in-memory map с TTL 30 секунд (per-process)
+- **L2** — Redis с TTL 5 минут
+- **L3** — реплика PostgreSQL (fallback)
+
+При смене статуса пользователя кеш инвалидируется.
+
+### Push-путь: обычный пользователь
+
+```
+Клиент → POST /post/create
+               ↓
+       Kafka Event (EventPostCreated)
+               ↓
+       Feed Worker → IsCelebrity(authorID) = false
+               ↓
+       Redis: INSERT в ZSET каждого подписчика + автора
+               ↓
+       RabbitMQ: user.{subscriberID} для каждого подписчика
+               ↓
+       WebSocket: BroadcastToUser(uid)
+```
+
+### Pull-путь: celebrity
+
+```
+Клиент → POST /post/create
+               ↓
+       Kafka Event (EventPostCreated)
+               ↓
+       Feed Worker → IsCelebrity(authorID) = true
+               ↓
+       Redis: INSERT только в:
+         - feeder:{authorID}  (своя лента)
+         - celeb_posts:{authorID}  (персональный ZSET celebrity)
+               ↓
+       RabbitMQ: НЕТ push-уведомлений подписчикам
+               ↓
+       WebSocket: НЕТ уведомлений
+```
+
+Подписчики **не получают** real-time уведомление, но при следующем запросе ленты (`GET /post/feed`) сервис вызывает `FetchAndMergeFeed`, который:
+1. Читает push-ленту из Redis (обычные друзья)
+2. Читает `celeb_posts` из Redis для каждого celebrity-друга
+3. Сливает оба списка по времени (merge sorted by `created_at DESC`)
+4. Возвращает страницу с учётом `limit`/`offset`
+
+### Чтение ленты (Feed)
+
+```
+GET /post/feed
+       ↓
+  Redis: base = feeder:{userID}
+       ↓
+  Redis: celebPosts = celeb_posts:{celebA} ∪ celeb_posts:{celebB} ...
+       ↓
+  mergeSortedByTime(base, celebPosts)
+       ↓
+  ответ
+```
+
+Если Redis пуст, используется fallback в БД: `FeedFromAuthors(authorIDs = [self] + nonCelebFriends + celebFriends)`. При этом в кеш записываются **только** не-celebrity посты, чтобы push-cache оставался чистым.
+
+### Пересчёт флагов при старте
+
+Если в окружении задано `RECALC_CELEBRITY_ON_START=true`, при старте приложения выполняется SQL-функция `recalc_celebrity_flags(threshold)`, которая пересчитывает `followers_count` и `is_celebrity` для всех пользователей. Полезно при первом деплое механизма или смене порога.
+
+### Итог
+
+- Обычный пользователь: классический push, мгновенные WS-уведомления, O(N) операций, где N — число подписчиков (в среднем десятки-сотни).
+- Celebrity: O(1) при посте, подписчики получают посты через merge при чтении ленты. Никакого миллионного fan-out.
+
+
 ## Детальная инструкция по проверке работы
 
 Ниже приведены шаги, которые помогут убедиться, что вся цепочка обновления ленты работает корректно.

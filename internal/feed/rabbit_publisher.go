@@ -54,7 +54,7 @@ func NewRabbitPublisher(url, exchange string) (*RabbitPublisher, error) {
 	return &RabbitPublisher{conn: conn, channel: ch, exchange: exchange}, nil
 }
 
-// PublishPostForUser publishes a notification for a specific subscriber.
+// PublishPostForUser publishes a notification for a specific subscriber (direct routing key).
 func (p *RabbitPublisher) PublishPostForUser(subscriberID uuid.UUID, post models.GetPostDTO) error {
 	message := FeedMessage{
 		Type:   "post_created",
@@ -67,13 +67,41 @@ func (p *RabbitPublisher) PublishPostForUser(subscriberID uuid.UUID, post models
 		return fmt.Errorf("failed to marshal feed message: %w", err)
 	}
 
-	routingKey := subscriberID.String()
+	routingKey := "user." + subscriberID.String()
 	return p.channel.PublishWithContext(
 		context.Background(),
 		p.exchange,
 		routingKey,
-		false, // mandatory
-		false, // immediate
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			Body:         payload,
+			DeliveryMode: amqp.Persistent,
+		},
+	)
+}
+
+// PublishPostFromCelebrity publishes a broadcast notification for all followers of a celebrity.
+func (p *RabbitPublisher) PublishPostFromCelebrity(celebID uuid.UUID, post models.GetPostDTO) error {
+	message := FeedMessage{
+		Type:   "post_created",
+		UserID: celebID,
+		Post:   post,
+	}
+
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal celeb feed message: %w", err)
+	}
+
+	routingKey := "celeb." + celebID.String()
+	return p.channel.PublishWithContext(
+		context.Background(),
+		p.exchange,
+		routingKey,
+		false,
+		false,
 		amqp.Publishing{
 			ContentType:  "application/json",
 			Body:         payload,

@@ -337,6 +337,8 @@ services:
       KAFKA_BROKERS: kafka:29092
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       LOG_LEVEL: debug
+      RECALC_CELEBRITY_ON_START: false
+      CELEBRITY_THRESHOLD: 10000
       # Citus coordinator for the dialog subsystem
       CITUS_HOST: citus-coordinator
       CITUS_PORT: 5432

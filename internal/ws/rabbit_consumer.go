@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -31,14 +32,13 @@ func NewRabbitConsumer(url, exchange string, hub *Hub) (*RabbitConsumer, error) 
 		return nil, fmt.Errorf("rabbit consumer: failed to open channel: %w", err)
 	}
 
-	// Declare exclusive, autodelete, non-durable queue with generated name
 	q, err := ch.QueueDeclare(
-		"", // let server generate name
-		false,
-		true,
-		true,
-		false,
-		nil,
+		"",    // let server generate name
+		false, // durable
+		true,  // auto-delete
+		true,  // exclusive
+		false, // no-wait
+		nil,   // args
 	)
 	if err != nil {
 		ch.Close()
@@ -51,21 +51,19 @@ func NewRabbitConsumer(url, exchange string, hub *Hub) (*RabbitConsumer, error) 
 	msgs, err := ch.Consume(
 		rc.queueName,
 		"",
-		true,
-		false,
-		false,
-		false,
-		nil,
+		true,  // auto-ack
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,   // args
 	)
 	if err != nil {
 		rc.Close()
 		return nil, fmt.Errorf("rabbit consumer: failed to start consuming: %w", err)
 	}
 
-	// Start message loop
 	go rc.loop(msgs)
 
-	// set bind/unbind handlers
 	hub.SetBindHandler(func(uid uuid.UUID) { rc.bind(uid) })
 	hub.SetUnbindHandler(func(uid uuid.UUID) { rc.unbind(uid) })
 
@@ -73,27 +71,27 @@ func NewRabbitConsumer(url, exchange string, hub *Hub) (*RabbitConsumer, error) 
 }
 
 func (rc *RabbitConsumer) bind(userID uuid.UUID) {
-	routingKey := userID.String()
+	userKey := "user." + userID.String()
 	if err := rc.channel.QueueBind(
 		rc.queueName,
-		routingKey,
+		userKey,
 		rc.exchange,
 		false,
 		nil,
 	); err != nil {
-		log.Printf("rabbit consumer: failed to bind key=%s: %v", routingKey, err)
+		log.Printf("rabbit consumer: failed to bind key=%s: %v", userKey, err)
 	}
 }
 
 func (rc *RabbitConsumer) unbind(userID uuid.UUID) {
-	routingKey := userID.String()
+	userKey := "user." + userID.String()
 	if err := rc.channel.QueueUnbind(
 		rc.queueName,
-		routingKey,
+		userKey,
 		rc.exchange,
 		nil,
 	); err != nil {
-		log.Printf("rabbit consumer: failed to unbind key=%s: %v", routingKey, err)
+		log.Printf("rabbit consumer: failed to unbind key=%s: %v", userKey, err)
 	}
 }
 
@@ -109,8 +107,19 @@ func (rc *RabbitConsumer) loop(deliveries <-chan amqp.Delivery) {
 			continue
 		}
 
-		// forward raw JSON to client
-		rc.hub.BroadcastToUser(msg.UserID, d.Body)
+		routingKey := d.RoutingKey
+		if strings.HasPrefix(routingKey, "user.") {
+			uidStr := strings.TrimPrefix(routingKey, "user.")
+			uid, err := uuid.Parse(uidStr)
+			if err != nil {
+				log.Printf("rabbit consumer: invalid user routing key %s: %v", routingKey, err)
+				continue
+			}
+			rc.hub.BroadcastToUser(uid, d.Body)
+		} else {
+			// Legacy fallback or unexpected routing key
+			rc.hub.BroadcastToUser(msg.UserID, d.Body)
+		}
 	}
 }
 

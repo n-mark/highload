@@ -62,7 +62,17 @@ func main() {
 	userStore := store.NewUserStore(db, replicaDB)
 	profileStore := store.NewProfileStore(db, replicaDB)
 	friendStore := store.NewFriendStore(db, replicaDB)
+	friendStore.SetThreshold(cfg.CelebrityFollowerThreshold)
 	postStore := store.NewPostStore(db, replicaDB)
+
+	// Optional: recalculate celebrity flags on startup
+	if os.Getenv("RECALC_CELEBRITY_ON_START") == "true" {
+		if err := friendStore.RecalcCelebrityFlags(context.Background()); err != nil {
+			log.Printf("failed to recalc celebrity flags: %v", err)
+		} else {
+			log.Println("celebrity flags recalculated on startup")
+		}
+	}
 
 	passwordHasher := auth.NewBcryptHasher()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret, "myproject", "myproject-api")
@@ -71,7 +81,6 @@ func main() {
 	profileService := services.NewProfileService(profileStore)
 	authService := services.NewAuthService(userStore, passwordHasher, jwtManager)
 
-	// Feed cache and worker
 	// RabbitMQ publisher for real-time notifications
 	rabbitPublisher, err := feed.NewRabbitPublisher(cfg.RabbitMQURL, "posts.feed")
 	if err != nil {
@@ -79,14 +88,15 @@ func main() {
 	}
 	defer rabbitPublisher.Close()
 
-	// Feed cache and worker
+	// Feed cache and celebrity resolver
 	feedCache := feed.NewCache(cfg.RedisAddr)
-	feedWorker := feed.NewWorker(feedCache, friendStore, postStore, cfg.KafkaBrokerList(), "feed-events", rabbitPublisher)
+	celebrityResolver := feed.NewCelebrityResolver(friendStore, feedCache.RDB(), cfg.CelebrityFollowerThreshold)
+	feedWorker := feed.NewWorker(feedCache, friendStore, postStore, cfg.KafkaBrokerList(), "feed-events", rabbitPublisher, celebrityResolver)
 	feedWorker.Start(4, cfg.KafkaBrokerList(), "feed-events")
 	defer feedWorker.Stop()
 
 	friendService := services.NewFriendService(friendStore, feedWorker)
-	postService := services.NewPostService(postStore, friendStore, feedCache, feedWorker)
+	postService := services.NewPostService(postStore, friendStore, feedCache, feedWorker, celebrityResolver)
 
 	// Citus — separate pool for the dialog/messaging subsystem
 	citusPool, err := pgxpool.New(context.Background(), cfg.CitusDSN())

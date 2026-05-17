@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
@@ -43,4 +44,8 @@ func (r *ReplicaPool) Close() {
 	for _, p := range r.pools {
 		p.Close()
 	}
+}
+
+func (r *ReplicaPool) Begin(ctx context.Context) (pgx.Tx, error) {
+	return nil, errors.New("replica pool does not support transactions")
 }

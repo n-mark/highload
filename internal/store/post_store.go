@@ -102,3 +102,31 @@ func (s *PostStore) Feed(ctx context.Context, userID uuid.UUID, limit, offset in
 	}
 	return posts, rows.Err()
 }
+// FeedFromAuthors returns posts from a specific set of authors, ordered by created_at DESC.
+func (s *PostStore) FeedFromAuthors(ctx context.Context, authorIDs []uuid.UUID, limit, offset int) ([]models.Post, error) {
+	if len(authorIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.replica.Query(ctx,
+		`SELECT p.post_id, p.author_id, p.content, p.created_at
+		 FROM post p
+		 WHERE p.author_id = ANY($1)
+		 ORDER BY p.created_at DESC
+		 LIMIT $2 OFFSET $3`,
+		authorIDs, limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []models.Post
+	for rows.Next() {
+		var p models.Post
+		if err := rows.Scan(&p.PostID, &p.AuthorID, &p.Content, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		posts = append(posts, p)
+	}
+	return posts, rows.Err()
+}

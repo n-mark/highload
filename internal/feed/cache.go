@@ -222,3 +222,75 @@ func userIDsToInterfaces(userIDs []uuid.UUID) []interface{} {
 	}
 	return ifs
 }
+
+// RDB exposes the underlying Redis client for use by CelebrityResolver.
+func (c *Cache) RDB() *redis.Client {
+	return c.rdb
+}
+
+func (c *Cache) keyCelebPosts(celebID uuid.UUID) string {
+	return "celeb_posts:" + celebID.String()
+}
+
+// InsertCelebPost adds a post to the celebrity's personal ZSET.
+func (c *Cache) InsertCelebPost(celebID uuid.UUID, post models.GetPostDTO) {
+	ctx := context.Background()
+	key := c.keyCelebPosts(celebID)
+	score := float64(post.CreatedAt.Unix())
+	pipe := c.rdb.TxPipeline()
+	pipe.ZAdd(ctx, key, redis.Z{Score: score, Member: post.PostID.String()})
+	pipe.ZRemRangeByRank(ctx, key, 0, -int64(maxFeedSize+1))
+	jsonData, _ := json.Marshal(post)
+	pipe.Set(ctx, c.keyPost(post.PostID), jsonData, 0)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		log.Printf("cache insert celeb post error: %v", err)
+	}
+}
+
+// GetCelebPosts returns the latest N posts from a celebrity's ZSET.
+func (c *Cache) GetCelebPosts(celebID uuid.UUID, limit int) []models.GetPostDTO {
+	ctx := context.Background()
+	key := c.keyCelebPosts(celebID)
+	zrangeRes := c.rdb.ZRevRangeByScore(ctx, key, &redis.ZRangeBy{
+		Min:   "-inf",
+		Max:   "+inf",
+		Count: int64(limit),
+	})
+	if zrangeRes.Err() != nil {
+		log.Printf("cache get celeb posts error: %v", zrangeRes.Err())
+		return nil
+	}
+	postIDsStr := zrangeRes.Val()
+	if len(postIDsStr) == 0 {
+		return nil
+	}
+	postIDs := make([]string, len(postIDsStr))
+	for i, id := range postIDsStr {
+		postIDs[i] = "post:" + id
+	}
+	mgetRes := c.rdb.MGet(ctx, postIDs...)
+	if mgetRes.Err() != nil {
+		log.Printf("cache celeb mget error: %v", mgetRes.Err())
+		return nil
+	}
+	posts := make([]models.GetPostDTO, 0, len(postIDsStr))
+	for _, val := range mgetRes.Val() {
+		if val != nil {
+			var post models.GetPostDTO
+			if err := json.Unmarshal([]byte(val.(string)), &post); err == nil {
+				posts = append(posts, post)
+			}
+		}
+	}
+	return posts
+}
+
+// DeleteCelebPost removes a post from a celebrity's ZSET.
+func (c *Cache) DeleteCelebPost(celebID, postID uuid.UUID) {
+	ctx := context.Background()
+	key := c.keyCelebPosts(celebID)
+	if err := c.rdb.ZRem(ctx, key, postID.String()).Err(); err != nil {
+		log.Printf("cache delete celeb post error: %v", err)
+	}
+}

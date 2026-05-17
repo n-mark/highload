@@ -26,18 +26,25 @@ func (s *FriendService) AddFriend(ctx context.Context, userID uuid.UUID, dto mod
 		return store.ErrFriendNotFound
 	}
 
-	// Insert into database
 	dbStart := time.Now()
-	if err := s.store.AddFriend(ctx, userID, friendID); err != nil {
+	transition, err := s.store.AddFriend(ctx, userID, friendID)
+	if err != nil {
 		return err
 	}
 	slog.Debug("AddFriend: database insert completed",
 		"duration", time.Since(dbStart),
 		"userID", userID,
 		"friendID", friendID,
+		"celebrityChanged", transition.Changed,
+		"isCelebrity", transition.IsCeleb,
 	)
 
-	// Publish event
+	// Invalidate celebrity cache if the friend's status changed
+	if transition.Changed {
+		// (In a full implementation, also rebind WebSocket consumers here)
+		slog.Info("celebrity status changed", "userID", friendID, "isCelebrity", transition.IsCeleb)
+	}
+
 	eventStart := time.Now()
 	s.worker.Enqueue(feed.Event{
 		Type:     feed.EventFriendAdded,
@@ -59,8 +66,13 @@ func (s *FriendService) DeleteFriend(ctx context.Context, userID uuid.UUID, dto 
 		return store.ErrFriendNotFound
 	}
 
-	if err := s.store.DeleteFriend(ctx, userID, friendID); err != nil {
+	transition, err := s.store.DeleteFriend(ctx, userID, friendID)
+	if err != nil {
 		return err
+	}
+
+	if transition.Changed {
+		slog.Info("celebrity status changed", "userID", friendID, "isCelebrity", transition.IsCeleb)
 	}
 
 	// Invalidate cache so feed is rebuilt without removed friend's posts

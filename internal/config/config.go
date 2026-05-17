@@ -3,21 +3,23 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
 type Config struct {
-	DBHost         string
-	DBPort         string
-	DBName         string
-	DBUser         string
-	DBPassword     string
-	DBReplicaHosts string // comma-separated: host1:port1
-	JWTSecret      string
-	ServerAddr     string
-	RedisAddr      string
-	KafkaBrokers   string // comma-separated
-	RabbitMQURL    string
+	DBHost                     string
+	DBPort                     string
+	DBName                     string
+	DBUser                     string
+	DBPassword                 string
+	DBReplicaHosts             string // comma-separated: host1:port1
+	JWTSecret                  string
+	ServerAddr                 string
+	RedisAddr                  string
+	KafkaBrokers               string // comma-separated
+	RabbitMQURL                string
+	CelebrityFollowerThreshold int
 
 	// Citus coordinator — separate connection used only for the dialog subsystem
 	CitusHost     string
@@ -28,18 +30,19 @@ type Config struct {
 }
 
 func Load() Config {
-	return Config{
-		DBHost:         getEnv("DB_HOST", "localhost"),
-		DBPort:         getEnv("DB_PORT", "5432"),
-		DBName:         getEnv("DB_NAME", "social"),
-		DBUser:         getEnv("DB_USER", "social_user"),
-		DBPassword:     getEnv("DB_PASSWORD", "social_pass"),
-		DBReplicaHosts: getEnv("DB_REPLICA_HOSTS", ""),
-		JWTSecret:      getEnv("JWT_SECRET", "change-me-secret"),
-		ServerAddr:     getEnv("SERVER_ADDR", ":8080"),
-		RedisAddr:      getEnv("REDIS_ADDR", "localhost:6379"),
-		KafkaBrokers:   getEnv("KAFKA_BROKERS", "localhost:9092"),
-		RabbitMQURL:    getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+	cfg := Config{
+		DBHost:                     getEnv("DB_HOST", "localhost"),
+		DBPort:                     getEnv("DB_PORT", "5432"),
+		DBName:                     getEnv("DB_NAME", "social"),
+		DBUser:                     getEnv("DB_USER", "social_user"),
+		DBPassword:                 getEnv("DB_PASSWORD", "social_pass"),
+		DBReplicaHosts:             getEnv("DB_REPLICA_HOSTS", ""),
+		JWTSecret:                  getEnv("JWT_SECRET", "change-me-secret"),
+		ServerAddr:                 getEnv("SERVER_ADDR", ":8080"),
+		RedisAddr:                  getEnv("REDIS_ADDR", "localhost:6379"),
+		KafkaBrokers:               getEnv("KAFKA_BROKERS", "localhost:9092"),
+		RabbitMQURL:                getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+		CelebrityFollowerThreshold: 10000,
 
 		CitusHost:     getEnv("CITUS_HOST", "localhost"),
 		CitusPort:     getEnv("CITUS_PORT", "5435"),
@@ -47,6 +50,14 @@ func Load() Config {
 		CitusUser:     getEnv("CITUS_USER", "citus_user"),
 		CitusPassword: getEnv("CITUS_PASSWORD", "citus_pass"),
 	}
+
+	if v := os.Getenv("CELEBRITY_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.CelebrityFollowerThreshold = n
+		}
+	}
+
+	return cfg
 }
 
 func (c Config) DSN() string {
