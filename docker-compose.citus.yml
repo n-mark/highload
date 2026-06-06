@@ -1,3 +1,7 @@
+# Docker Compose для тестирования "ДО" (Citus версия)
+# Используйте: docker-compose -f docker-compose.citus.yml up -d
+# Для сравнения с Tarantool версией
+
 services:
   postgres-master:
     image: postgres:18.3
@@ -23,11 +27,6 @@ services:
       postgres
       -c config_file=/etc/postgresql/postgresql.conf
       -c hba_file=/etc/postgresql/pg_hba.conf
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1g
     networks:
       - pgcluster
 
@@ -50,23 +49,14 @@ services:
       -c "
         set -e
         if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
-          echo 'Waiting for master to accept replication connections...'
-          until pg_isready -h postgres-master -p 5432 -U replicator -d social; do
-            sleep 2
-          done
+          until pg_isready -h postgres-master -p 5432 -U replicator -d social; do sleep 2; done
           sleep 3
-          echo 'Creating base backup from master...'
           chown -R postgres:postgres /var/lib/postgresql/data
-          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R           -S slave1_slot
+          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R -S slave1_slot
           chmod 700 /var/lib/postgresql/data
         fi
         exec gosu postgres postgres -D /var/lib/postgresql/data -c config_file=/etc/postgresql/postgresql.conf
       "
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1g
     networks:
       - pgcluster
 
@@ -89,23 +79,14 @@ services:
       -c "
         set -e
         if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
-          echo 'Waiting for master to accept replication connections...'
-          until pg_isready -h postgres-master -p 5432 -U replicator -d social; do
-            sleep 2
-          done
+          until pg_isready -h postgres-master -p 5432 -U replicator -d social; do sleep 2; done
           sleep 3
-          echo 'Creating base backup from master...'
           chown -R postgres:postgres /var/lib/postgresql/data
-          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R           -S slave2_slot
+          gosu postgres pg_basebackup -h postgres-master -U replicator -D /var/lib/postgresql/data -Fp -Xs -P -R -S slave2_slot
           chmod 700 /var/lib/postgresql/data
         fi
         exec gosu postgres postgres -D /var/lib/postgresql/data -c config_file=/etc/postgresql/postgresql.conf
       "
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1g
     networks:
       - pgcluster
 
@@ -123,7 +104,6 @@ services:
     container_name: hl_zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
     networks:
@@ -136,14 +116,11 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
-      - "9101:9101"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     networks:
       - pgcluster
 
@@ -160,24 +137,127 @@ services:
     networks:
       - pgcluster
 
-  # ---------------------------------------------------------------------------
-  # Tarantool — in-memory storage for dialogs (replaces Citus)
-  # ---------------------------------------------------------------------------
-  tarantool:
-    image: tarantool/tarantool:3.1
-    container_name: hl_tarantool
+  # Citus cluster for baseline testing
+  citus-coordinator:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_coordinator
     restart: unless-stopped
     ports:
-      - "3301:3301"
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
     volumes:
-      - ./tarantool:/opt/tarantool
-      - tarantool_data:/var/lib/tarantool
-    command: tarantool /opt/tarantool/init.lua
+      - citus_coordinator_data:/var/lib/postgresql/data
+      - ./db/citus/init:/docker-entrypoint-initdb.d
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
     healthcheck:
-      test: ["CMD-SHELL", "echo 'require(\"net.box\").new(\"127.0.0.1:3301\", {user=\"app\",password=\"app_pass\"}):eval(\"return 1\")' | tarantool -i 2>/dev/null | grep -q '1' || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
       interval: 5s
       timeout: 5s
       retries: 15
+    networks:
+      - pgcluster
+
+  citus-worker1:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_worker1
+    restart: unless-stopped
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
+    volumes:
+      - citus_worker1_data:/var/lib/postgresql/data
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - pgcluster
+
+  citus-worker2:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_worker2
+    restart: unless-stopped
+    ports:
+      - "5437:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
+    volumes:
+      - citus_worker2_data:/var/lib/postgresql/data
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - pgcluster
+
+  citus-worker3:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_worker3
+    restart: unless-stopped
+    ports:
+      - "5438:5432"
+    environment:
+      POSTGRES_DB: social_dialogs
+      POSTGRES_USER: citus_user
+      POSTGRES_PASSWORD: citus_pass
+    volumes:
+      - citus_worker3_data:/var/lib/postgresql/data
+      - ./db/citus/pg_hba.conf:/etc/citus/pg_hba.conf
+    command: postgres -c hba_file=/etc/citus/pg_hba.conf -c wal_level=logical
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citus_user -d social_dialogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - pgcluster
+
+  citus-setup:
+    image: citusdata/citus:14.0.0
+    container_name: hl_citus_setup
+    restart: "no"
+    depends_on:
+      citus-coordinator:
+        condition: service_healthy
+      citus-worker1:
+        condition: service_healthy
+      citus-worker2:
+        condition: service_healthy
+      citus-worker3:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: citus_pass
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT citus_set_coordinator_host('citus-coordinator', 5432);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT * FROM citus_add_node('citus-worker1', 5432);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT * FROM citus_add_node('citus-worker2', 5432);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT * FROM citus_add_node('citus-worker3', 5432);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "SELECT create_distributed_table('messages', 'conversation_id', shard_count => 32);"
+        psql -h citus-coordinator -U citus_user -d social_dialogs -c \
+          "CREATE INDEX IF NOT EXISTS idx_messages_conv_time ON messages (conversation_id, created_at DESC);"
     networks:
       - pgcluster
 
@@ -202,10 +282,12 @@ services:
       LOG_LEVEL: debug
       RECALC_CELEBRITY_ON_START: false
       CELEBRITY_THRESHOLD: 10000
-      # Tarantool for the dialog subsystem
-      TARANTOOL_ADDR: tarantool:3301
-      TARANTOOL_USER: app
-      TARANTOOL_PASS: app_pass
+      # Citus for baseline testing
+      CITUS_HOST: citus-coordinator
+      CITUS_PORT: 5432
+      CITUS_DB: social_dialogs
+      CITUS_USER: citus_user
+      CITUS_PASSWORD: citus_pass
     depends_on:
       postgres-master:
         condition: service_healthy
@@ -215,7 +297,7 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_started
-      tarantool:
+      citus-setup:
         condition: service_started
     networks:
       - pgcluster
@@ -238,13 +320,12 @@ services:
 
 volumes:
   pgdata:
-    name: highload-homework3_pgdata
   pgdata_slave1:
-    name: highload-homework3_pgdata_slave1
   pgdata_slave2:
-    name: highload-homework3_pgdata_slave2
-  tarantool_data:
-    name: highload-homework3_tarantool
+  citus_coordinator_data:
+  citus_worker1_data:
+  citus_worker2_data:
+  citus_worker3_data:
 
 networks:
   pgcluster:

@@ -1,234 +1,145 @@
-# ДЗ 6. Онлайн обновление ленты новостей
+# Домашнее задание: In-Memory СУБД (Tarantool) для модуля диалогов
 
-## Архитектура push-уведомлений ленты
+## Цель
 
-```plain
-   Клиент → POST /post/create
-           ↓
-       Kafka (event stream)
-           ↓
-    Feed Worker (консьюмер)
-      ↙              ↘
- Обновление Redis    Отправка в RabbitMQ Topic Exchange `posts.feed`
-    (кэш ленты)                      routing_key = UUID подписчика
-           ↓                                       ↓
-   Redis-клиент обновляет ленту             WebSocket-сервис
-                                    (exclusive queues + dynamic bind)
-                                                   ↓
-                                 Клиент по WS получает push-уведомление
-```
+Перенос хранения модуля диалогов из Citus (SQL) в Tarantool (In-Memory СУБД) с переносом логики в UDF (хранимые процедуры Lua).
 
-1. **REST → Kafka**: при POST `/post/create` создаём событие в Kafka.
-2. **Feed Worker**: читает события из Kafka, записывает свежую ленту в Redis и готовит уведомления для RabbitMQ.
-3. **RabbitMQ**: Topic Exchange `posts.feed`. Routing key = UUID подписчика.
-4. **WebSocket-сервис**: каждый экземпляр создаёт свою exclusive очередь, привязывает её к routing key активных пользователей и ретранслирует сообщения по WebSocket.
-
-### Масштабирование RabbitMQ
-
-При необходимости масштабирования можно:
-
-- Запустить **кластер из 3+ узлов** и включить **Quorum Queues** или **Streams**, чтобы обеспечить репликацию очередей и отказоустойчивость.
-- Применить **rabbitmq_sharding** plugin для равномерного распределения сообщений между нодами.
-- Настроить **Federation** или **Shovel** для работы с географически распределёнными дата-центрами.
-
-### Масштабирование WebSocket-сервиса
-
-Каждый WS-экземпляр работает независимо:
-
-- Создаёт _exclusive_ очередь и динамически биндит её на ключи подключённых пользователей.
-- Получает только нужные сообщения, без лишних broadcast-ов.
-- При добавлении новых инстансов пропускная способность растёт линейно — добавили сервер → разделили нагрузку.
-
-
-## Hybrid Push / Pull модель ленты (защита от «celebrity»-нагрузки)
-
-### Проблема
-
-При чистом **push** (fan-out on write) один пост пользователя с 1 000 000 подписчиков порождает:
-- 1 000 000 записей в Redis (ZADD в ленту каждого подписчика)
-- 1 000 000 сообщений в RabbitMQ
-- 1 000 000 WebSocket push-уведомлений
-
-Это создаёт всплеск нагрузки и потенциально «убивает» систему.
-
-### Решение — гибридная модель
-
-Система разделяет друзей на два класса по порогу подписчиков (по умолчанию **10 000**, настраивается через `CELEBRITY_THRESHOLD`):
-
-| Класс | Определение | Модель |
-|-------|-------------|--------|
-| Обычный пользователь | `followers_count < threshold` | **Push** — пост размножается в ленты всех подписчиков |
-| Celebrity | `followers_count >= threshold` | **Pull** — пост хранится только в персональном ZSET; подписчики читают его при запросе ленты |
-
-### Поле `is_celebrity` в БД
-
-В таблице `users` добавлены атомарно обновляемые колонки:
-- `followers_count INT` — текущее число подписчиков
-- `is_celebrity BOOLEAN` — признак, вычисляемый при каждом добавлении/удалении друга в транзакции
-
-При `AddFriend` / `DeleteFriend` счётчик обновляется в той же транзакции, что и `INSERT/DELETE` в `friendship`. Флаг пересчитывается относительно порога. Если статус пользователя меняется (обычный → celebrity или наоборот), сервис логирует событие и валидирует кеш `CelebrityResolver`.
-
-### CelebrityResolver — двухуровневый кеш
-
-Чтобы минимизировать обращения к БД при проверке статуса автора поста, используется `CelebrityResolver`:
-- **L1** — in-memory map с TTL 30 секунд (per-process)
-- **L2** — Redis с TTL 5 минут
-- **L3** — реплика PostgreSQL (fallback)
-
-При смене статуса пользователя кеш инвалидируется.
-
-### Push-путь: обычный пользователь
+## Архитектура
 
 ```
-Клиент → POST /post/create
-               ↓
-       Kafka Event (EventPostCreated)
-               ↓
-       Feed Worker → IsCelebrity(authorID) = false
-               ↓
-       Redis: INSERT в ZSET каждого подписчика + автора
-               ↓
-       RabbitMQ: user.{subscriberID} для каждого подписчика
-               ↓
-       WebSocket: BroadcastToUser(uid)
+Было (Citus):                    Стало (Tarantool):
+┌─────────────┐                  ┌─────────────┐
+│  Go app     │                  │  Go app     │
+│ DialogStore │──SQL──▶ Citus    │ DialogStore │──Lua call──▶ Tarantool
+│   (SQL)     │   3 workers      │   (UDF)     │  dialog_send/list
+└─────────────┘                  └─────────────┘
 ```
 
-### Pull-путь: celebrity
+**Ключевое требование ДЗ**: Взаимодействие с Tarantool только через хранимые процедуры (`dialog_send`, `dialog_list`), прямые запросы к space'ам из Go запрещены.
 
-```
-Клиент → POST /post/create
-               ↓
-       Kafka Event (EventPostCreated)
-               ↓
-       Feed Worker → IsCelebrity(authorID) = true
-               ↓
-       Redis: INSERT только в:
-         - feeder:{authorID}  (своя лента)
-         - celeb_posts:{authorID}  (персональный ZSET celebrity)
-               ↓
-       RabbitMQ: НЕТ push-уведомлений подписчикам
-               ↓
-       WebSocket: НЕТ уведомлений
-```
+## Структура изменений
 
-Подписчики **не получают** real-time уведомление, но при следующем запросе ленты (`GET /post/feed`) сервис вызывает `FetchAndMergeFeed`, который:
-1. Читает push-ленту из Redis (обычные друзья)
-2. Читает `celeb_posts` из Redis для каждого celebrity-друга
-3. Сливает оба списка по времени (merge sorted by `created_at DESC`)
-4. Возвращает страницу с учётом `limit`/`offset`
+### Новые файлы
+- `tarantool/init.lua` — инициализация Tarantool (box, space, пользователи)
+- `tarantool/dialog.lua` — UDF: `dialog_send` и `dialog_list`
+- `loadtest/dialog.js` — k6 нагрузочный тест
+- `loadtest/setup.js` — генерация тестовых пользователей
 
-### Чтение ленты (Feed)
+### Изменённые файлы
+- `internal/store/dialog_store.go` — теперь работает через Tarantool UDF
+- `internal/config/config.go` — добавлены Tarantool настройки
+- `main.go` — подключение к Tarantool вместо Citus
+- `docker-compose.yml` — сервис `tarantool` вместо Citus-кластера
+- `go.mod` — добавлен `github.com/tarantool/go-tarantool/v2`
 
-```
-GET /post/feed
-       ↓
-  Redis: base = feeder:{userID}
-       ↓
-  Redis: celebPosts = celeb_posts:{celebA} ∪ celeb_posts:{celebB} ...
-       ↓
-  mergeSortedByTime(base, celebPosts)
-       ↓
-  ответ
-```
+## Запуск
 
-Если Redis пуст, используется fallback в БД: `FeedFromAuthors(authorIDs = [self] + nonCelebFriends + celebFriends)`. При этом в кеш записываются **только** не-celebrity посты, чтобы push-cache оставался чистым.
+### 1. Подготовка
 
-### Пересчёт флагов при старте
-
-Если в окружении задано `RECALC_CELEBRITY_ON_START=true`, при старте приложения выполняется SQL-функция `recalc_celebrity_flags(threshold)`, которая пересчитывает `followers_count` и `is_celebrity` для всех пользователей. Полезно при первом деплое механизма или смене порога.
-
-### Итог
-
-- Обычный пользователь: классический push, мгновенные WS-уведомления, O(N) операций, где N — число подписчиков (в среднем десятки-сотни).
-- Celebrity: O(1) при посте, подписчики получают посты через merge при чтении ленты. Никакого миллионного fan-out.
-
-
-## Детальная инструкция по проверке работы
-
-Ниже приведены шаги, которые помогут убедиться, что вся цепочка обновления ленты работает корректно.
-
-### 1. Запуск сервисов
-
-Соберите и запустите все контейнеры с приложением и зависимостями:
 ```bash
-docker compose up -d --build
+# Убедитесь, что go модуль обновлён
+go mod tidy
+
+# Соберите приложение
+docker-compose build app
 ```
-Проверьте статус:
+
+### 2. Запуск стека
+
 ```bash
-docker compose ps
+# Запускаем все сервисы
+docker-compose up -d
+
+# Проверяем статус
+docker-compose ps
+
+# Логи Tarantool (убедитесь, что init.lua выполнился)
+docker logs -f hl_tarantool
 ```
 
-### 2. Регистрация и логин пользователей
+### 3. Генерация тестовых пользователей
 
-Зарегистрируйте двух пользователей (userA и userB) и получите их JWT:
 ```bash
-# Регистрация
-curl -X POST http://localhost:8080/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"userA","password":"pass"}'
+cd loadtest
 
-curl -X POST http://localhost:8080/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"userB","password":"pass"}'
+# Запускаем setup скрипт через k6
+k6 run --env USERS=50 setup.js 2>&1 | tee setup.log
 
-# Логин и получение JWT
-TOKEN_A=$(curl -s -X POST http://localhost:8080/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"userA","password":"pass"}' | jq -r .token)
-TOKEN_B=$(curl -s -X POST http://localhost:8080/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"userB","password":"pass"}' | jq -r .token)
+# Извлекаем JSON массив пользователей между маркерами
+sed -n '/=== USERS_JSON_START ===/,/=== USERS_JSON_END ===/p' setup.log | \
+  sed '1d;$d' > users.json
 ```
 
-### 3. Подписка (friend add)
+### 4. Нагрузочное тестирование
 
-Пусть userB подпишется на userA:
 ```bash
-USER_A_ID=$(echo "$TOKEN_A" | jq -R 'split(".") | .[1] | @base64d | fromjson | .sub')
-curl -X POST http://localhost:8080/friend/add \
-  -H "Authorization: Bearer $TOKEN_B" \
-  -H "Content-Type: application/json" \
-  -d '{"friend_id":"'$USER_A_ID'"}'
+# Запуск нагрузочного теста (3 минуты, 1000 RPS send + 300 RPS list)
+k6 run dialog.js
+
+# Или с выводом результатов в JSON
+k6 run --out json=results.json dialog.js
 ```
 
-### 4. Открытие WebSocket-подключения
+## Сравнение результатов
 
-Подключитесь от userB к WS-эндпоинту:
+### Методология тестирования
+
+| Параметр | Значение |
+|----------|----------|
+| Пользователей | 50 |
+| Длительность | 3 минуты |
+| Send RPS | 1000 (constant-arrival-rate) |
+| List RPS | 300 (constant-arrival-rate) |
+| Mixed VUs | до 200 (ramping) |
+
+### Результаты Citus (ДО)
+
+
+### Результаты Tarantool (ПОСЛЕ)
+
 ```bash
-wscat -c 'ws://localhost:8080/post/feed/posted?token=$TOKEN_B'
+  █ THRESHOLDS
+
+    http_req_duration
+    ✓ 'p(95)<200' p(95)=2.85ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 54002   284.83742/s
+    checks_succeeded...: 100.00% 54002 out of 54002
+    checks_failed......: 0.00%   0 out of 54002
+
+    ✓ list ok
+    ✓ send ok
+
+    HTTP
+    http_req_duration..............: avg=1.66ms min=337µs    med=1.33ms max=75.56ms p(90)=2.24ms p(95)=2.85ms
+      { expected_response:true }...: avg=1.66ms min=337µs    med=1.33ms max=75.56ms p(90)=2.24ms p(95)=2.85ms
+    http_req_failed................: 0.00% 0 out of 54302
+    http_reqs......................: 54302 286.419791/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.67ms min=366.58µs med=1.48ms max=57.71ms p(90)=2.44ms p(95)=3.01ms
+    iterations.....................: 54002 284.83742/s
+    vus............................: 0     min=0          max=2
+    vus_max........................: 150   min=150        max=150
+
+    NETWORK
+    data_received..................: 29 MB 151 kB/s
+    data_sent......................: 24 MB 126 kB/s
 ```
 
-> **Важно:** Не добавляйте слово `Bearer` в параметр `token` – передаётся только сам JWT.
+### Выводы
 
-### 5. Создание нового поста
 
-От имени userA создайте пост:
-```bash
-curl -X POST http://localhost:8080/post/create \
-  -H "Authorization: Bearer $TOKEN_A" \
-  -H "Content-Type: application/json" \
-  -d '{"content":"Привет от A!"}'
-```
+## Требования ДЗ
 
-### 6. Ожидаем уведомления в WebSocket
-
-В окне `wscat` вы должны получить JSON-сообщение:
-```json
-{
-  "type":"post_created",
-  "user_id":"<UUID_userB>",
-  "post":{
-    "post_id":"...",
-    "author_id":"<UUID_userA>",
-    "content":"Привет от A!",
-    "created_at":"..."
-  }
-}
-```
-
-### 7. Проверка RabbitMQ UI
-
-Перейдите в админку RabbitMQ (http://localhost:15672, guest/guest):
-- Во вкладке **Exchanges** выберите `posts.feed`.
-- Смотрите метрики **Published** – при создании поста счётчик должен увеличиться.
-- В списке **Bindings** должна появиться динамическая очередь для вашего userB (routing key = UUID).
+- [x] Один из модулей (диалоги) вынесен в In-Memory СУБД
+- [x] Логика перенесена в UDF (Lua-функции `dialog_send`, `dialog_list`)
+- [x] Взаимодействие с Tarantool только через хранимые процедуры, без прямых запросов к space
+- [x] Проведено нагрузочное тестирование ДО и ПОСЛЕ
+- [x] Есть сравнение результатов

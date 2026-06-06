@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"example.com/highload/myproject/internal/auth"
 	"example.com/highload/myproject/internal/config"
@@ -16,6 +17,7 @@ import (
 	"example.com/highload/myproject/internal/store"
 	"example.com/highload/myproject/internal/ws"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tarantool/go-tarantool/v2"
 )
 
 func initLogger() {
@@ -98,19 +100,36 @@ func main() {
 	friendService := services.NewFriendService(friendStore, feedWorker)
 	postService := services.NewPostService(postStore, friendStore, feedCache, feedWorker, celebrityResolver)
 
-	// Citus — separate pool for the dialog/messaging subsystem
-	citusPool, err := pgxpool.New(context.Background(), cfg.CitusDSN())
+	// Tarantool — in-memory storage for the dialog/messaging subsystem
+	tarantoolCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tarantoolDialer := tarantool.NetDialer{
+		Address:  cfg.TarantoolAddr,
+		User:     cfg.TarantoolUser,
+		Password: cfg.TarantoolPass,
+	}
+	tarantoolOpts := tarantool.Opts{
+		Timeout:       2 * time.Second,
+		Reconnect:     1 * time.Second,
+		MaxReconnects: 5,
+	}
+	tarantoolConn, err := tarantool.Connect(tarantoolCtx, tarantoolDialer, tarantoolOpts)
 	if err != nil {
-		log.Fatalf("failed to connect to Citus coordinator: %v", err)
+		log.Fatalf("failed to connect to Tarantool: %v", err)
 	}
-	defer citusPool.Close()
+	defer tarantoolConn.Close()
 
-	if err := citusPool.Ping(context.Background()); err != nil {
-		log.Fatalf("Citus coordinator is not reachable: %v", err)
+	// Verify connection with a ping-like call
+	_, err = tarantoolConn.Call("dialog_list", []interface{}{
+		[]interface{}{"00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000000"},
+	})
+	if err != nil {
+		log.Printf("tarantool ping call warning: %v", err)
 	}
-	log.Println("connected to Citus coordinator")
+	log.Println("connected to Tarantool")
 
-	dialogStore := store.NewDialogStore(citusPool)
+	dialogStore := store.NewDialogStore(tarantoolConn)
 	dialogService := services.NewDialogService(dialogStore)
 
 	middleware := auth.NewMiddleware(jwtManager)

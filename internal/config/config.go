@@ -21,12 +21,10 @@ type Config struct {
 	RabbitMQURL                string
 	CelebrityFollowerThreshold int
 
-	// Citus coordinator — separate connection used only for the dialog subsystem
-	CitusHost     string
-	CitusPort     string
-	CitusDB       string
-	CitusUser     string
-	CitusPassword string
+	// Tarantool — in-memory storage for the dialog subsystem
+	TarantoolAddr string
+	TarantoolUser string
+	TarantoolPass string
 }
 
 func Load() Config {
@@ -44,11 +42,9 @@ func Load() Config {
 		RabbitMQURL:                getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
 		CelebrityFollowerThreshold: 10000,
 
-		CitusHost:     getEnv("CITUS_HOST", "localhost"),
-		CitusPort:     getEnv("CITUS_PORT", "5435"),
-		CitusDB:       getEnv("CITUS_DB", "social_dialogs"),
-		CitusUser:     getEnv("CITUS_USER", "citus_user"),
-		CitusPassword: getEnv("CITUS_PASSWORD", "citus_pass"),
+		TarantoolAddr: getEnv("TARANTOOL_ADDR", "localhost:3301"),
+		TarantoolUser: getEnv("TARANTOOL_USER", "app"),
+		TarantoolPass: getEnv("TARANTOOL_PASS", "app_pass"),
 	}
 
 	if v := os.Getenv("CELEBRITY_THRESHOLD"); v != "" {
@@ -64,14 +60,6 @@ func (c Config) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName,
-	)
-}
-
-// CitusDSN returns the connection string for the Citus coordinator.
-func (c Config) CitusDSN() string {
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		c.CitusUser, c.CitusPassword, c.CitusHost, c.CitusPort, c.CitusDB,
 	)
 }
 
