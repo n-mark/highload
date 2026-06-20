@@ -20,13 +20,10 @@ type Config struct {
 	KafkaBrokers               string // comma-separated
 	RabbitMQURL                string
 	CelebrityFollowerThreshold int
-
-	// Citus coordinator — separate connection used only for the dialog subsystem
-	CitusHost     string
-	CitusPort     string
-	CitusDB       string
-	CitusUser     string
-	CitusPassword string
+	DialogSvcAddr              string
+	DialogSvcProtocol          string
+	DialogSendEndpointTempl    string
+	DialogListEndpointTempl    string
 }
 
 func Load() Config {
@@ -42,13 +39,11 @@ func Load() Config {
 		RedisAddr:                  getEnv("REDIS_ADDR", "localhost:6379"),
 		KafkaBrokers:               getEnv("KAFKA_BROKERS", "localhost:9092"),
 		RabbitMQURL:                getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+		DialogSvcAddr:              getEnv("DIALOG_SVC_ADDR", "dialog_svc:8080"),
+		DialogSvcProtocol:          getEnv("DIALOG_SVC_PROTOCOL", "http"),
+		DialogSendEndpointTempl:    getEnv("DIALOG_SEND_ENDPOINT_TEMPLATE", "dialog/%s/send"),
+		DialogListEndpointTempl:    getEnv("DIALOG_LIST_ENDPOINT_TEMPLATE", "dialog/%s/list"),
 		CelebrityFollowerThreshold: 10000,
-
-		CitusHost:     getEnv("CITUS_HOST", "localhost"),
-		CitusPort:     getEnv("CITUS_PORT", "5435"),
-		CitusDB:       getEnv("CITUS_DB", "social_dialogs"),
-		CitusUser:     getEnv("CITUS_USER", "citus_user"),
-		CitusPassword: getEnv("CITUS_PASSWORD", "citus_pass"),
 	}
 
 	if v := os.Getenv("CELEBRITY_THRESHOLD"); v != "" {
@@ -64,14 +59,6 @@ func (c Config) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName,
-	)
-}
-
-// CitusDSN returns the connection string for the Citus coordinator.
-func (c Config) CitusDSN() string {
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		c.CitusUser, c.CitusPassword, c.CitusHost, c.CitusPort, c.CitusDB,
 	)
 }
 

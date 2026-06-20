@@ -12,7 +12,7 @@ import (
 )
 
 type PostService struct {
-	store     *store.PostStore
+	store       *store.PostStore
 	friendStore *store.FriendStore
 	cache       *feed.Cache
 	worker      *feed.Worker

@@ -14,14 +14,14 @@ import (
 
 // CelebrityResolver caches is_celebrity lookups with in-memory L1 and Redis L2.
 type CelebrityResolver struct {
-	friendStore  *store.FriendStore
-	redis        *redis.Client
-	threshold    int
-	inMemTTL     time.Duration
-	redisTTL     time.Duration
+	friendStore *store.FriendStore
+	redis       *redis.Client
+	threshold   int
+	inMemTTL    time.Duration
+	redisTTL    time.Duration
 
-	mu     sync.RWMutex
-	cache  map[string]celebCacheEntry
+	mu    sync.RWMutex
+	cache map[string]celebCacheEntry
 }
 
 type celebCacheEntry struct {

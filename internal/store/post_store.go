@@ -102,6 +102,7 @@ func (s *PostStore) Feed(ctx context.Context, userID uuid.UUID, limit, offset in
 	}
 	return posts, rows.Err()
 }
+
 // FeedFromAuthors returns posts from a specific set of authors, ordered by created_at DESC.
 func (s *PostStore) FeedFromAuthors(ctx context.Context, authorIDs []uuid.UUID, limit, offset int) ([]models.Post, error) {
 	if len(authorIDs) == 0 {

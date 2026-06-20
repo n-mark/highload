@@ -90,7 +90,7 @@ func (s *ProfileService) Update(ctx context.Context, ownerID uuid.UUID, profileI
 func mapProfile(profile models.Profile) models.GetProfileDTO {
 	return models.GetProfileDTO{
 		ProfileID: profile.ID,
-		UserID: profile.OwnerID,
+		UserID:    profile.OwnerID,
 		ProfileDTO: models.ProfileDTO{
 			Name:        profile.Name,
 			Surname:     profile.Surname,

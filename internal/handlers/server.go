@@ -20,7 +20,17 @@ type Server struct {
 	middleware     AuthMiddleware
 }
 
-func NewServer(userService UserService, profileService ProfileService, authService AuthService, middleware AuthMiddleware, replica *store.ReplicaPool, friendService FriendService, postService PostService, dialogService DialogService, wsHandler *ws.WSHandler) *Server {
+type DialogSvcProps struct {
+	DialogSvcAddr     string
+	DialogSvcSend     string
+	DialogSvcList     string
+	DialogSvcProtocol string
+}
+
+func NewServer(userService UserService, profileService ProfileService,
+	authService AuthService, middleware AuthMiddleware, replica *store.ReplicaPool,
+	friendService FriendService, postService PostService, wsHandler *ws.WSHandler,
+	dialogServiceProps DialogSvcProps) *Server {
 	return &Server{
 		userHandler:    NewUserHandler(userService, middleware),
 		profileHandler: NewProfileHandler(profileService, middleware),
@@ -28,7 +38,7 @@ func NewServer(userService UserService, profileService ProfileService, authServi
 		statsHandler:   NewStatsHandler(replica),
 		friendHandler:  NewFriendHandler(friendService, middleware),
 		postHandler:    NewPostHandler(postService, middleware),
-		dialogHandler:  NewDialogHandler(dialogService, middleware),
+		dialogHandler:  NewDialogHandler(middleware, dialogServiceProps),
 		wsHandler:      wsHandler,
 		middleware:     middleware,
 	}

@@ -98,21 +98,6 @@ func main() {
 	friendService := services.NewFriendService(friendStore, feedWorker)
 	postService := services.NewPostService(postStore, friendStore, feedCache, feedWorker, celebrityResolver)
 
-	// Citus — separate pool for the dialog/messaging subsystem
-	citusPool, err := pgxpool.New(context.Background(), cfg.CitusDSN())
-	if err != nil {
-		log.Fatalf("failed to connect to Citus coordinator: %v", err)
-	}
-	defer citusPool.Close()
-
-	if err := citusPool.Ping(context.Background()); err != nil {
-		log.Fatalf("Citus coordinator is not reachable: %v", err)
-	}
-	log.Println("connected to Citus coordinator")
-
-	dialogStore := store.NewDialogStore(citusPool)
-	dialogService := services.NewDialogService(dialogStore)
-
 	middleware := auth.NewMiddleware(jwtManager)
 
 	// WebSocket hub and RabbitMQ consumer for push notifications
@@ -126,7 +111,12 @@ func main() {
 
 	wsHandler := ws.NewWSHandler(wsHub, jwtManager)
 
-	server := handlers.NewServer(userService, profileService, authService, middleware, replicaDB, friendService, postService, dialogService, wsHandler)
+	dialogSvcProps := handlers.DialogSvcProps{DialogSvcAddr: cfg.DialogSvcAddr,
+		DialogSvcSend: cfg.DialogSendEndpointTempl, DialogSvcList: cfg.DialogListEndpointTempl,
+		DialogSvcProtocol: cfg.DialogSvcProtocol}
+
+	server := handlers.NewServer(userService, profileService, authService, middleware,
+		replicaDB, friendService, postService, wsHandler, dialogSvcProps)
 
 	log.Printf("listening on %s", cfg.ServerAddr)
 	if err := http.ListenAndServe(cfg.ServerAddr, server.Router()); err != nil {

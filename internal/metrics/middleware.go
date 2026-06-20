@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -38,7 +41,19 @@ func Middleware(next http.Handler) http.Handler {
 
 // normalizePath приводит пути к обобщённому виду (например /user/42 → /user/:id).
 func normalizePath(path string) string {
-	return path
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		// Если часть — это число (ID), заменяем на :id
+		if _, err := strconv.Atoi(part); err == nil && part != "" {
+			parts[i] = ":id"
+		}
+		// Если это UUID (пример: 123e4567-e89b-12d3-a456-426614174000)
+		if matched, _ := regexp.MatchString(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, part); matched {
+			parts[i] = ":uuid"
+		}
+		// Можно добавить другие паттерны: хэши, slug и т.д.
+	}
+	return strings.Join(parts, "/")
 }
 
 // responseWriter обёртка для перехвата status code.

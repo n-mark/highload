@@ -7,7 +7,7 @@ type PasswordHasher interface {
 	Compare(hashed, plain string) error
 }
 
-type BcryptHasher struct {}
+type BcryptHasher struct{}
 
 func NewBcryptHasher() *BcryptHasher {
 	return &BcryptHasher{}

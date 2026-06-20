@@ -15,14 +15,14 @@ import (
 )
 
 type Worker struct {
-	cache         *Cache
-	friendStore   *store.FriendStore
-	postStore     *store.PostStore
-	celebrity     *CelebrityResolver
-	publisher     *RabbitPublisher
-	writer        *kafka.Writer
-	wg            sync.WaitGroup
-	stop          chan struct{}
+	cache       *Cache
+	friendStore *store.FriendStore
+	postStore   *store.PostStore
+	celebrity   *CelebrityResolver
+	publisher   *RabbitPublisher
+	writer      *kafka.Writer
+	wg          sync.WaitGroup
+	stop        chan struct{}
 }
 
 func NewWorker(cache *Cache, friendStore *store.FriendStore, postStore *store.PostStore, brokers []string, topic string, publisher *RabbitPublisher, celebrity *CelebrityResolver) *Worker {
