@@ -23,7 +23,9 @@ type ProfileService interface {
 type AuthService interface {
 	Login(ctx context.Context, dto models.LoginDTO) (models.TokenDTO, error)
 	Register(ctx context.Context, dto models.CreateUserDTO) (models.GetUserDTO, error)
+	Validate(token string) (string, error)
 }
+
 
 type FriendService interface {
 	AddFriend(ctx context.Context, userID uuid.UUID, dto models.FriendActionDTO) error

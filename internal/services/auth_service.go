@@ -49,3 +49,7 @@ func (s *AuthService) Register(ctx context.Context, dto models.CreateUserDTO) (m
 
 	return user, nil
 }
+
+func (s *AuthService) Validate(token string) (string, error) {
+	return s.jwtManager.VerifyToken(token)
+}

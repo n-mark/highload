@@ -49,6 +49,7 @@ func (s *Server) Router() http.Handler {
 
 	mux.HandleFunc("/auth/login", s.authHandler.Login)
 	mux.HandleFunc("/auth/register", s.authHandler.Register)
+	mux.HandleFunc("/auth/verify", s.authHandler.VerifyHandler)
 	mux.HandleFunc("/stats", s.statsHandler.Handle)
 
 	mux.HandleFunc("/user", s.userHandler.HandleUser)

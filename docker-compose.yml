@@ -318,12 +318,33 @@ services:
     networks:
       - pgcluster
 
+  # ---------------------------------------------------------------------------
+  # Инфраструктура Traefik
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    container_name: hl_traefik
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80" # Тестировать теперь можно через http://localhost/...
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - pgcluster
+
+  # ---------------------------------------------------------------------------
+  # Ваши веб-сервисы с поддержкой роутинга и авторизации
+  # ---------------------------------------------------------------------------
   app:
     build: .
     container_name: hl_app
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # ports:
+    #   - "8080:8080"
     environment:
       DB_HOST: postgres-master
       DB_PORT: 5432
@@ -352,6 +373,15 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_started
+    labels:
+      - "traefik.enable=true"
+      # Монолит обрабатывает всё, кроме путей диалогов версии 2
+      - "traefik.http.routers.monolith.rule=Host(`localhost`)"
+      - "traefik.http.routers.monolith.entrypoints=web"
+      - "traefik.http.services.monolith.loadbalancer.server.port=8080"
+
+      # Указываем Traefik, через какую конкретно сеть ходить в этот контейнер:
+      - "traefik.docker.network=pgcluster"
     networks:
       - pgcluster
 
@@ -359,8 +389,8 @@ services:
     image: mblkuta/dialog-svc:0.2.1
     container_name: dialogsvc
     restart: unless-stopped
-    ports:
-      - "8081:8080"
+    # ports:
+    #   - "8081:8080"
     environment:
       # Citus coordinator for the dialog subsystem
       CITUS_HOST: citus-coordinator
@@ -372,6 +402,33 @@ services:
     depends_on:
       citus-setup:
         condition: service_started
+      app:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      # Перехватываем роуты диалогов v2 (PathPrefix с литералом /v2/dialog/ —
+      # {toUserId} в Traefik v3 не является шаблоном пути, поэтому ловим всё под /v2/dialog/)
+      - "traefik.http.routers.dialogs.rule=Host(`localhost`) && PathPrefix(`/v2/dialog/`)"
+      - "traefik.http.routers.dialogs.entrypoints=web"
+      - "traefik.http.routers.dialogs.priority=100" # Приоритет выше монолита
+
+      # Указываем Traefik, через какую конкретно сеть ходить в этот контейнер:
+      - "traefik.docker.network=pgcluster"
+
+      # Мидлварь для проверки авторизации через эндпоинт монолита.
+      # Объявляем её здесь же, на контейнере dialog_svc, чтобы Traefik гарантированно
+      # регистрировал её одновременно с роутером dialogs (избегаем race-condition,
+      # когда контейнер app ещё не поднялся / рестартится).
+      - "traefik.http.middlewares.monolith-auth.forwardauth.address=http://app:8080/auth/verify"
+      - "traefik.http.middlewares.monolith-auth.forwardauth.trustForwardHeader=true"
+      - "traefik.http.middlewares.monolith-auth.forwardauth.authResponseHeaders=X-User-ID"
+
+      # Мидлварь для удаления префикса /v2
+      - "traefik.http.middlewares.strip-v2.stripprefix.prefixes=/v2"
+
+      # Применяем обе мидлвари к роутеру диалогов
+      - "traefik.http.routers.dialogs.middlewares=monolith-auth,strip-v2"
+      - "traefik.http.services.dialogs.loadbalancer.server.port=8080"
     networks:
       - pgcluster
 
